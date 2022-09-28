@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path"
 	"strings"
 
 	"github.com/knusbaum/kitsync/ksrpc"
@@ -62,7 +63,7 @@ func main() {
 		}
 
 		tags := map[string]string{
-			"filename": *file,
+			"filename": path.Base(*file),
 		}
 		err = cli.Send(&ksrpc.ContentChunk{Tags: tags})
 		if err != nil {
@@ -94,7 +95,7 @@ func main() {
 			fmt.Printf("Failed to finish sending: %v\n", err)
 			return
 		}
-		fmt.Printf("Received reply: %#v\n", reply.ID)
+		fmt.Printf("%s\n", reply.ID)
 
 	}
 	if *search != "" {
