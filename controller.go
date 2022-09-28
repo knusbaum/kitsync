@@ -18,6 +18,7 @@ const (
 	ev_NONE evtype = iota
 	ev_put
 	ev_add_tag
+	ev_del_tag
 )
 
 type event struct {
@@ -229,8 +230,6 @@ func (c *Controller) pcheckpt() uint64 {
 }
 
 func (c *Controller) syncJournals() bool {
-	log.Printf("Syncing journals.\n")
-	defer log.Printf("Finished syncing journals.\n")
 	pi := c.pcheckpt()
 	c.slock.Lock()
 	defer c.slock.Unlock()
@@ -239,8 +238,10 @@ sloop:
 	for _, s := range c.secondaries {
 		si := s.Checkpoint()
 		if si < pi {
+			log.Printf("Syncing %s with primary.", s)
 			for i := si + 1; i <= pi; i++ {
 				if !c.isOpen() {
+					log.Printf("Journal sync interrupted.")
 					return false
 				}
 				if time.Now().After(deadline) {
@@ -259,6 +260,32 @@ sloop:
 						continue sloop
 					}
 					err := s.Put(o)
+					if err != nil {
+						log.Printf("Failed to sync event %#v to secondary %s: %v\n", ev, s, err)
+						continue sloop
+					}
+					s.SetCheckpoint(i)
+					continue
+				} else if ev.T == ev_add_tag {
+					o, ok := s.Get(ev.ID)
+					if !ok {
+						log.Printf("Failed to sync event %#v to secondary %s: object %s not present.\n", ev, s, ev.ID)
+						continue sloop
+					}
+					err := o.AddTag(ev.Tagk, ev.Tagv)
+					if err != nil {
+						log.Printf("Failed to sync event %#v to secondary %s: %v\n", ev, s, err)
+						continue sloop
+					}
+					s.SetCheckpoint(i)
+					continue
+				} else if ev.T == ev_del_tag {
+					o, ok := s.Get(ev.ID)
+					if !ok {
+						log.Printf("Failed to sync event %#v to secondary %s: object %s not present.\n", ev, s, ev.ID)
+						continue sloop
+					}
+					err := o.DelTag(ev.Tagk)
 					if err != nil {
 						log.Printf("Failed to sync event %#v to secondary %s: %v\n", ev, s, err)
 						continue sloop
@@ -323,15 +350,6 @@ func (c *Controller) tryShutdown() bool {
 		close(c.shutdown)
 	})
 	return ret
-	// 	c.plock.Lock()
-	// 	defer c.plock.Unlock()
-	// 	c.slock.Lock()
-	// 	defer c.slock.Unlock()
-	// 	if !c.isOpen() {
-	// 		return false
-	// 	}
-	// 	close(c.shutdown)
-	// 	return true
 }
 
 func (c *Controller) Close() error {
@@ -342,5 +360,52 @@ func (c *Controller) Close() error {
 	log.Printf("Shutting down Controller.")
 	c.journal.Close()
 	c.wg.Wait()
+	return nil
+}
+
+func (c *Controller) Index() Index {
+	return c.primary.Index()
+}
+
+func (c *Controller) Get(hash string) (Object, bool) {
+	o, ok := c.primary.Get(hash)
+	if !ok {
+		return nil, false
+	}
+	return &cob{o, c}, true
+}
+
+type cob struct {
+	Object
+	c *Controller
+}
+
+func (c *cob) AddTag(k, v string) error {
+	err := c.Object.AddTag(k, v)
+	if err != nil {
+		return err
+	}
+	i, err := c.c.journal.Add(event{T: ev_add_tag, ID: c.ID(), Tagk: k, Tagv: v})
+	if err != nil {
+		// This should only happen if the journal has been closed. That should never happen, but if it
+		// does, secondaries will get out of sync. That can only be caught by a manual sync.
+		return err
+	}
+	c.c.primary.SetCheckpoint(i)
+	return nil
+}
+
+func (c *cob) DelTag(k string) error {
+	err := c.Object.DelTag(k)
+	if err != nil {
+		return err
+	}
+	i, err := c.c.journal.Add(event{T: ev_del_tag, ID: c.ID(), Tagk: k})
+	if err != nil {
+		// This should only happen if the journal has been closed. That should never happen, but if it
+		// does, secondaries will get out of sync. That can only be caught by a manual sync.
+		return err
+	}
+	c.c.primary.SetCheckpoint(i)
 	return nil
 }

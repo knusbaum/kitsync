@@ -41,7 +41,7 @@ func main() {
 	index.Index("id3", data)
 
 	// search for some text
-	query := bleve.NewPrefixQuery("")
+	query := bleve.NewMatchQuery("")
 	query.SetField("Name.baz")
 	search := bleve.NewSearchRequest(query)
 	searchResults, err := index.Search(search)

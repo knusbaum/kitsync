@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/knusbaum/kitsync/ksrpc"
 	"google.golang.org/grpc"
@@ -14,9 +15,13 @@ import (
 )
 
 var (
-	addr = flag.String("addr", "localhost:50051", "the address to connect to")
-	file = flag.String("file", "", "the file to add to ksd")
-	s    = flag.Bool("sync", false, "causes ksd to manually sync all storages")
+	addr   = flag.String("addr", "localhost:50051", "the address to connect to")
+	file   = flag.String("file", "", "the file to add to ksd")
+	s      = flag.Bool("sync", false, "causes ksd to manually sync all storages")
+	search = flag.String("search", "", "colon-separated key/value pair to search for.")
+	id     = flag.String("id", "", "Without other args, gets the tags for an ID.")
+	setkey = flag.String("setkey", "", "colon-separated key/value pair to set on -id.")
+	delkey = flag.String("delkey", "", "key to delete on -id.")
 )
 
 func main() {
@@ -56,6 +61,14 @@ func main() {
 			fmt.Printf("Failed to add %s: %v\n", *file, err)
 		}
 
+		tags := map[string]string{
+			"filename": *file,
+		}
+		err = cli.Send(&ksrpc.ContentChunk{Tags: tags})
+		if err != nil {
+			fmt.Printf("Failed to send chunk: %v\n", err)
+			return
+		}
 		for {
 			var bbs [4096]byte
 			bs := bbs[:]
@@ -66,6 +79,7 @@ func main() {
 				return
 			}
 			bs = bs[:n]
+
 			err = cli.Send(&ksrpc.ContentChunk{Data: bs})
 			if err != nil {
 				fmt.Printf("Failed to send chunk: %v\n", err)
@@ -83,23 +97,64 @@ func main() {
 		fmt.Printf("Received reply: %#v\n", reply.ID)
 
 	}
-}
+	if *search != "" {
+		parts := strings.SplitN(*search, ":", 2)
+		var key, value string
+		if len(parts) == 2 {
+			key = parts[0]
+			value = parts[1]
+		} else {
+			value = parts[0]
+		}
+		cli, err := c.Search(context.Background(), &ksrpc.Query{Key: key, Value: value})
+		if err != nil {
+			fmt.Printf("Failed to search %s: %v\n", *search, err)
+			return
+		}
 
-// func main() {
-// 	client, err := rpc.DialHTTP("tcp", "localhost:61234")
-// 	if err != nil {
-// 		log.Fatal("dialing:", err)
-// 	}
-//
-// 	err = client.Call("Handler.Add", 10, nil)
-// 	if err != nil {
-// 		log.Fatal("arith error:", err)
-// 	}
-//
-// 	var s ksrpc.Stats
-// 	err = client.Call("Handler.Stats", struct{}{}, &s)
-// 	if err != nil {
-// 		log.Fatal("arith error:", err)
-// 	}
-// 	fmt.Printf("Stats: %#v\n", s)
-// }
+		for id, err := cli.Recv(); err == nil; id, err = cli.Recv() {
+			fmt.Printf("%s\n", id.ID)
+		}
+	}
+	if *id != "" {
+		if *setkey != "" {
+			parts := strings.SplitN(*setkey, ":", 2)
+			var key, value string
+			if len(parts) != 2 {
+				fmt.Printf("Expected a key and value, separated by a colon, but found: \"%s\".\n", *setkey)
+				return
+			}
+			key = parts[0]
+			value = parts[1]
+			_, err := c.AddTags(context.Background(), &ksrpc.TagsRequest{ID: *id, Tags: map[string]string{key: value}})
+			if err != nil {
+				fmt.Printf("Failed to set tags on %s: %v\n", *id, err)
+				return
+			}
+		} else if *delkey != "" {
+			_, err := c.DelTags(context.Background(), &ksrpc.TagsRequest{ID: *id, Tags: map[string]string{*delkey: ""}})
+			if err != nil {
+				fmt.Printf("Failed to set tags on %s: %v\n", *id, err)
+				return
+			}
+		}
+		//else {
+		r, err := c.Lookup(context.Background(), &ksrpc.ID{ID: *id})
+		if err != nil {
+			fmt.Printf("Failed to get tags %s: %v\n", *search, err)
+			return
+		}
+		if r.Present {
+			fmt.Printf("Found %s\n", *id)
+			for k, v := range r.Tags {
+				fmt.Printf("\t%s: %s\n", k, v)
+			}
+		} else {
+			fmt.Printf("Not Found %s\n", *id)
+		}
+		//}
+	} else if *setkey != "" || *delkey != "" {
+		fmt.Printf("Need to specify -id to set/delete tags.\n")
+	}
+
+}

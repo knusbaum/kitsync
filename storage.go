@@ -20,6 +20,7 @@ type Object interface {
 	Updated() (time.Time, error)
 	Tags() (map[string]string, error)
 	AddTag(string, string) error
+	DelTag(string) error
 	Content() (io.ReadCloser, error)
 }
 
@@ -40,5 +41,6 @@ type Storage interface {
 	Index() Index
 	Checkpoint() uint64
 	SetCheckpoint(c uint64)
+	Close() error
 	fmt.Stringer
 }

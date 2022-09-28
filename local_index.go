@@ -42,6 +42,10 @@ func openFSIndex(root string) (*fsIndex, error) {
 	return idx, nil
 }
 
+func (i *fsIndex) Close() error {
+	return i.tindex.Close()
+}
+
 func (i *fsIndex) Iter() (IndexIterator, error) {
 	return newFSIndexIterator(i.root)
 }
@@ -64,11 +68,13 @@ func (i *fsIndex) Tag(k, v string) (IndexIterator, error) {
 		if k != "" {
 			query.SetField("Tags." + k)
 		}
+		q = query
 	} else {
 		query := bleve.NewMatchQuery(v)
 		if k != "" {
 			query.SetField("Tags." + k)
 		}
+		q = query
 	}
 	search := bleve.NewSearchRequest(q)
 	searchResults, err := i.tindex.Search(search)
@@ -77,6 +83,21 @@ func (i *fsIndex) Tag(k, v string) (IndexIterator, error) {
 	}
 	sort.Sort((*ByDocumentID)(searchResults))
 	return &bleveResultsIterator{r: searchResults}, nil
+}
+
+func (i *fsIndex) Add(o Object) error {
+	tags, err := o.Tags()
+	if err != nil {
+		return err
+	}
+	data := struct {
+		Tags map[string]string
+	}{
+		Tags: tags,
+	}
+	fmt.Printf("Indexing... %#v\n", data)
+	i.tindex.Index(o.ID(), data)
+	return nil
 }
 
 type bleveResultsIterator struct {
@@ -88,7 +109,9 @@ func (i *bleveResultsIterator) Next() (string, error) {
 	if i.i >= len(i.r.Hits) {
 		return "", itDone
 	}
-	return i.r.Hits[i.i].ID, nil
+	id := i.r.Hits[i.i].ID
+	i.i++
+	return id, nil
 }
 func (i *bleveResultsIterator) Close() error {
 	return nil

@@ -21,6 +21,7 @@ type fsObject struct {
 	updated time.Time
 	tags    map[string]string
 	l       sync.RWMutex
+	s       *fsStorage
 }
 
 func (o *fsObject) ID() string {
@@ -179,7 +180,7 @@ func (o *fsObject) lockedLoadTags() error {
 	return nil
 }
 
-func (o *fsObject) AddTag(k, v string) error {
+func (o *fsObject) addTag(k, v string) error {
 	o.l.Lock()
 	defer o.l.Unlock()
 	err := o.lockedLoadTags()
@@ -198,6 +199,58 @@ func (o *fsObject) AddTag(k, v string) error {
 	if err != nil {
 		return err
 	}
+	return nil
+}
+
+func (o *fsObject) AddTag(k, v string) error {
+	err := o.addTag(k, v)
+	if err != nil {
+		return err
+	}
+
+	// Update the index
+	err = o.s.idx.Add(o)
+	if err != nil {
+		log.Printf("Failed to index tags for %s: %v", o.id, err)
+	}
+
+	return nil
+}
+
+func (o *fsObject) delTag(k string) error {
+	o.l.Lock()
+	defer o.l.Unlock()
+	err := o.lockedLoadTags()
+	if err != nil {
+		return err
+	}
+	delete(o.tags, k)
+	f, err := os.Create(o.path + ".tags")
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	e := gob.NewEncoder(f)
+	err = e.Encode(o.tags)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (o *fsObject) DelTag(k string) error {
+	err := o.delTag(k)
+	if err != nil {
+		return err
+	}
+
+	// Update the index
+	err = o.s.idx.Add(o)
+	if err != nil {
+		log.Printf("Failed to index tags for %s: %v", o.id, err)
+	}
+
 	return nil
 }
 
@@ -266,6 +319,12 @@ func (s *fsStorage) Put(o Object) error {
 		return err
 	}
 
+	// Update the index
+	err = s.idx.Add(o)
+	if err != nil {
+		log.Printf("Failed to index tags for %s: %v", h, err)
+	}
+
 	// Write updated file
 	f, err = os.Create(op + ".updated")
 	if err != nil {
@@ -293,9 +352,13 @@ func (s *fsStorage) Put(o Object) error {
 	}
 	defer f.Close()
 
-	m := make(map[string]string)
+	tags, err := o.Tags()
+	if err != nil {
+		return err
+	}
+
 	e := gob.NewEncoder(f)
-	err = e.Encode(m)
+	err = e.Encode(tags)
 	if err != nil {
 		return err
 	}
@@ -307,6 +370,7 @@ func (s *fsStorage) Get(hash string) (Object, bool) {
 		o := &fsObject{
 			id:   hash,
 			path: path.Join(s.root, pathForHash(hash)),
+			s:    s,
 		}
 		return o, true
 	}
@@ -314,7 +378,6 @@ func (s *fsStorage) Get(hash string) (Object, bool) {
 }
 
 func (s *fsStorage) Index() Index {
-
 	return s.idx
 }
 
@@ -346,8 +409,17 @@ func (s *fsStorage) SetCheckpoint(i uint64) {
 	e.Encode(i)
 }
 
-func NewFSStorage(path string) Storage {
+func (s *fsStorage) Close() error {
+	return s.idx.Close()
+}
+
+func NewFSStorage(path string) (Storage, error) {
+	idx, err := openFSIndex(path)
+	if err != nil {
+		return nil, err
+	}
 	return &fsStorage{
 		root: path,
-	}
+		idx:  idx,
+	}, nil
 }

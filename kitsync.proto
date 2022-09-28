@@ -8,6 +8,10 @@ service Controller {
   // Sends a greeting
   rpc Sync (Void) returns (Void) {}
   rpc Add(stream ContentChunk) returns (AddReply) {}
+  rpc Search(Query) returns (stream ID) {}
+  rpc Lookup(ID) returns (LookupResult) {}
+  rpc AddTags(TagsRequest) returns (Void) {}
+  rpc DelTags(TagsRequest) returns (Void) {}
 }
 
 message Void {
@@ -15,9 +19,30 @@ message Void {
 
 // The request message containing the user's name.
 message ContentChunk {
-	bytes Data = 1;
+	map<string, string> Tags = 1;
+	bytes Data = 2;
 }
 
 message AddReply {
 	string ID = 1;
 }
+
+message Query {
+	string Key = 1;
+	string Value = 2;
+}
+
+message ID {
+	string ID = 1;
+}
+
+message LookupResult {
+	map<string, string> Tags = 1;
+	bool Present = 2;
+}
+
+message TagsRequest {
+	string ID = 1;
+	map<string, string> Tags = 2;
+}
+

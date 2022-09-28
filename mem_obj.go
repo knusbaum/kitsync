@@ -43,10 +43,18 @@ func (o *memObject) AddTag(k, v string) error {
 	return nil
 }
 
+func (o *memObject) DelTag(k string) error {
+	delete(o.tags, k)
+	return nil
+}
+
 func (o *memObject) Content() (io.ReadCloser, error) {
 	return io.NopCloser(bytes.NewBuffer(o.content)), nil
 }
 
-func NewMemObject(bs []byte) Object {
-	return &memObject{content: bs, updated: time.Now()}
+func NewMemObject(bs []byte, tags map[string]string) Object {
+	if tags == nil {
+		tags = make(map[string]string)
+	}
+	return &memObject{content: bs, tags: tags, updated: time.Now()}
 }

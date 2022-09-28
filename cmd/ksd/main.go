@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -29,19 +30,27 @@ func (s *server) Sync(context.Context, *ksrpc.Void) (*ksrpc.Void, error) {
 }
 
 func (s *server) Add(cas ksrpc.Controller_AddServer) error {
+	tags := make(map[string]string)
 	var bs bytes.Buffer
 	for {
 		cc, err := cas.Recv()
+		if err == io.EOF {
+			break
+		}
 		if err != nil {
 			return err
 		}
+		if cc.Tags != nil {
+			for k, v := range cc.Tags {
+				tags[k] = v
+			}
+		}
 		if len(cc.Data) > 0 {
 			bs.Write(cc.Data)
-		} else {
-			break
 		}
 	}
-	o := kitsync.NewMemObject(bs.Bytes())
+	fmt.Printf("TAGS: %#v\n", tags)
+	o := kitsync.NewMemObject(bs.Bytes(), tags)
 	err := s.c.Put(o)
 	if err != nil {
 		return err
@@ -49,6 +58,69 @@ func (s *server) Add(cas ksrpc.Controller_AddServer) error {
 	return cas.SendAndClose(&ksrpc.AddReply{
 		ID: o.ID(),
 	})
+}
+
+func (s *server) Search(q *ksrpc.Query, cli ksrpc.Controller_SearchServer) error {
+	i, err := s.c.Index().Tag(q.Key, q.Value)
+	if err != nil {
+		return err
+	}
+	for id, err := i.Next(); err == nil; id, err = i.Next() {
+		err := cli.Send(&ksrpc.ID{ID: id})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *server) Lookup(_ context.Context, id *ksrpc.ID) (*ksrpc.LookupResult, error) {
+	o, ok := s.c.Get(id.ID)
+	if !ok {
+		return &ksrpc.LookupResult{}, nil
+	}
+	tags, err := o.Tags()
+	if err != nil {
+		return nil, err
+	}
+	return &ksrpc.LookupResult{
+		Tags:    tags,
+		Present: true,
+	}, nil
+}
+
+func (s *server) AddTags(_ context.Context, r *ksrpc.TagsRequest) (*ksrpc.Void, error) {
+	log.Printf("Getting %s", r.ID)
+	o, ok := s.c.Get(r.ID)
+	if !ok {
+		return nil, fmt.Errorf("ID %s does not exist.", r.ID)
+	}
+	for k, v := range r.Tags {
+		log.Printf("Adding Tag %s: %s", k, v)
+		err := o.AddTag(k, v)
+		if err != nil {
+			return nil, err
+		}
+	}
+	log.Printf("Returning success.")
+	return &ksrpc.Void{}, nil
+}
+
+func (s *server) DelTags(_ context.Context, r *ksrpc.TagsRequest) (*ksrpc.Void, error) {
+	log.Printf("Getting %s", r.ID)
+	o, ok := s.c.Get(r.ID)
+	if !ok {
+		return nil, fmt.Errorf("ID %s does not exist.", r.ID)
+	}
+	for k, v := range r.Tags {
+		log.Printf("Deleting Tag %s: %s", k, v)
+		err := o.DelTag(k)
+		if err != nil {
+			return nil, err
+		}
+	}
+	log.Printf("Returning success.")
+	return &ksrpc.Void{}, nil
 }
 
 var (
@@ -61,14 +133,21 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
-
-	ct, err := kitsync.NewController("testdata", kitsync.NewFSStorage("/tmp/foo"))
+	st1, err := kitsync.NewFSStorage("/tmp/foo")
+	if err != nil {
+		log.Fatalf("Failed to start controller: %v", err)
+	}
+	ct, err := kitsync.NewController("testdata", st1)
 	if err != nil {
 		log.Fatalf("Failed to start controller: %v", err)
 	}
 	defer ct.Close()
 	//ct.AddSecondary(kitsync.NewFSStorage("/mnt/microsoft/testkitsync"))
-	ct.AddSecondary(kitsync.NewFSStorage("/tmp/bar"))
+	st2, err := kitsync.NewFSStorage("/tmp/bar")
+	if err != nil {
+		log.Fatalf("Failed to start controller: %v", err)
+	}
+	ct.AddSecondary(st2)
 
 	s := grpc.NewServer()
 	ksrpc.RegisterControllerServer(s, &server{c: ct})
