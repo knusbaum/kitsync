@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+option go_package = "github.com/knusbaum/kitsync/ksrpc";
+package ksrpc;
+
+// The greeting service definition.
+service Controller {
+  // Sends a greeting
+  rpc Sync (Void) returns (Void) {}
+  rpc Add(stream ContentChunk) returns (AddReply) {}
+}
+
+message Void {
+}
+
+// The request message containing the user's name.
+message ContentChunk {
+	bytes Data = 1;
+}
+
+message AddReply {
+	string ID = 1;
+}
