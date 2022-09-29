@@ -87,7 +87,6 @@ func main() {
 		vtags := make(map[string]string)
 		// Make sure all the tags are valid
 		for k, v := range tags {
-			fmt.Printf("[%s]: [%s]\n", k, v)
 			vtags[strings.ToValidUTF8(k, "")] = strings.ToValidUTF8(v, "")
 		}
 		//fmt.Printf("Uploading with tags: %#v\n", tags)
