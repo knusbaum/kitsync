@@ -80,7 +80,6 @@ func getMP4Tags(fname string) (map[string]string, error) {
 	// 	tags["mp4.fast_start"] = fmt.Sprintf("%t", info.FastStart)
 	// 	tags["mp4.timescale"] = fmt.Sprintf("%d", info.Timescale)
 	tags["duration"] = time.Duration(info.Duration * uint64(info.Timescale) * uint64(time.Microsecond)).String()
-	fmt.Printf("%v\n", tags)
 	return tags, nil
 }
 
