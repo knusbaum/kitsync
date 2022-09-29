@@ -59,6 +59,7 @@ func (s *server) Put(cas ksrpc.Controller_PutServer) error {
 	if err != nil {
 		return err
 	}
+	fmt.Printf("ID: %s\n", o.ID())
 	return cas.SendAndClose(&ksrpc.AddReply{
 		ID: o.ID(),
 	})
