@@ -70,12 +70,14 @@ func (s *server) Search(q *ksrpc.Query, cli ksrpc.Controller_SearchServer) error
 	if err != nil {
 		return err
 	}
-	for id, err := i.Next(); err == nil; id, err = i.Next() {
+	var id string
+	for id, err = i.Next(); err == nil; id, err = i.Next() {
 		err := cli.Send(&ksrpc.ID{ID: id})
 		if err != nil {
 			return err
 		}
 	}
+	fmt.Printf("SEARCH: %v\n", err)
 	return nil
 }
 

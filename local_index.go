@@ -2,6 +2,7 @@ package kitsync
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path"
 	"sort"
@@ -76,7 +77,9 @@ func (i *fsIndex) SearchTag(k, v string) (IndexIterator, error) {
 		}
 		q = query
 	}
+	fmt.Printf("SEARCHING: %#v\n", q)
 	search := bleve.NewSearchRequest(q)
+	search.Size = math.MaxInt
 	searchResults, err := i.tindex.Search(search)
 	if err != nil {
 		return nil, err
