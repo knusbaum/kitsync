@@ -90,6 +90,9 @@ func main() {
 		if err != nil {
 			fmt.Printf("FILE: %s\n", *file)
 			fmt.Printf("While sending tags: Failed to send chunk: %v\n", err)
+			for k, v := range tags {
+				fmt.Printf("[%s]: [%s]\n", k, v)
+			}
 			return
 		}
 		for {
