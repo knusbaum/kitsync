@@ -88,7 +88,8 @@ func main() {
 		//panic("OK")
 		err = cli.Send(&ksrpc.ContentChunk{Tags: tags})
 		if err != nil {
-			fmt.Printf("Failed to send chunk: %v\n", err)
+			fmt.Printf("FILE: %s\n", *file)
+			fmt.Printf("While sending tags: Failed to send chunk: %v\n", err)
 			return
 		}
 		for {
@@ -104,7 +105,8 @@ func main() {
 
 			err = cli.Send(&ksrpc.ContentChunk{Data: bs})
 			if err != nil {
-				fmt.Printf("Failed to send chunk: %v\n", err)
+				fmt.Printf("FILE: %s\n", *file)
+				fmt.Printf("While sending data (%d bytes): Failed to send chunk: %v\n", len(bs), err)
 				return
 			}
 			if len(bs) == 0 {
