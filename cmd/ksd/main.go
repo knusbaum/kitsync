@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"flag"
@@ -32,7 +33,7 @@ func (s *server) Sync(context.Context, *ksrpc.Void) (*ksrpc.Void, error) {
 	return &ksrpc.Void{}, nil
 }
 
-func (s *server) Add(cas ksrpc.Controller_AddServer) error {
+func (s *server) Put(cas ksrpc.Controller_PutServer) error {
 	tags := make(map[string]string)
 	var bs bytes.Buffer
 	for {
@@ -64,7 +65,7 @@ func (s *server) Add(cas ksrpc.Controller_AddServer) error {
 }
 
 func (s *server) Search(q *ksrpc.Query, cli ksrpc.Controller_SearchServer) error {
-	i, err := s.c.Index().Tag(q.Key, q.Value)
+	i, err := s.c.Index().SearchTag(q.Key, q.Value)
 	if err != nil {
 		return err
 	}
@@ -92,7 +93,7 @@ func (s *server) Lookup(_ context.Context, id *ksrpc.ID) (*ksrpc.LookupResult, e
 	}, nil
 }
 
-func (s *server) AddTags(_ context.Context, r *ksrpc.TagsRequest) (*ksrpc.Void, error) {
+func (s *server) AddTags(_ context.Context, r *ksrpc.ObjectRequest) (*ksrpc.Void, error) {
 	log.Printf("Getting %s", r.ID)
 	o, ok := s.c.Get(r.ID)
 	if !ok {
@@ -109,7 +110,7 @@ func (s *server) AddTags(_ context.Context, r *ksrpc.TagsRequest) (*ksrpc.Void, 
 	return &ksrpc.Void{}, nil
 }
 
-func (s *server) DelTags(_ context.Context, r *ksrpc.TagsRequest) (*ksrpc.Void, error) {
+func (s *server) DelTags(_ context.Context, r *ksrpc.ObjectRequest) (*ksrpc.Void, error) {
 	log.Printf("Getting %s", r.ID)
 	o, ok := s.c.Get(r.ID)
 	if !ok {
@@ -124,6 +125,43 @@ func (s *server) DelTags(_ context.Context, r *ksrpc.TagsRequest) (*ksrpc.Void, 
 	}
 	log.Printf("Returning success.")
 	return &ksrpc.Void{}, nil
+}
+
+func (s *server) Content(r *ksrpc.ObjectRequest, cli ksrpc.Controller_ContentServer) error {
+	log.Printf("Getting %s", r.ID)
+	o, ok := s.c.Get(r.ID)
+	if !ok {
+		return fmt.Errorf("ID %s does not exist.", r.ID)
+	}
+	c, err := o.Content()
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	buf := make([]byte, 8192)
+	rd := bufio.NewReader(c)
+	for {
+		n, err := rd.Read(buf)
+		if err != nil {
+			if err == io.EOF {
+				if n > 0 {
+					err := cli.Send(&ksrpc.ContentChunk{Data: buf[:n]})
+					if err != nil {
+						return err
+					}
+				}
+				break
+			}
+			return err
+		}
+		if n > 0 {
+			err := cli.Send(&ksrpc.ContentChunk{Data: buf[:n]})
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 var (

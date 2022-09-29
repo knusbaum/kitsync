@@ -61,7 +61,7 @@ func (i *fsIndex) Present(hash string) bool {
 	return true
 }
 
-func (i *fsIndex) Tag(k, v string) (IndexIterator, error) {
+func (i *fsIndex) SearchTag(k, v string) (IndexIterator, error) {
 	var q query.Query
 	if v == "" {
 		query := bleve.NewPrefixQuery("")

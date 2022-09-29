@@ -7,15 +7,19 @@ package ksrpc;
 service Controller {
   // Sends a greeting
   rpc Sync (Void) returns (Void) {}
-  rpc Add(stream ContentChunk) returns (AddReply) {}
-  rpc Search(Query) returns (stream ID) {}
+  rpc Put(stream ContentChunk) returns (AddReply) {}
   rpc Lookup(ID) returns (LookupResult) {}
-  rpc AddTags(TagsRequest) returns (Void) {}
-  rpc DelTags(TagsRequest) returns (Void) {}
+
+  // Index functions
+  rpc Search(Query) returns (stream ID) {}
+
+  // Object functions
+  rpc AddTags(ObjectRequest) returns (Void) {}
+  rpc DelTags(ObjectRequest) returns (Void) {}
+  rpc Content(ObjectRequest) returns (stream ContentChunk) {}
 }
 
-message Void {
-}
+message Void {}
 
 // The request message containing the user's name.
 message ContentChunk {
@@ -41,7 +45,7 @@ message LookupResult {
 	bool Present = 2;
 }
 
-message TagsRequest {
+message ObjectRequest {
 	string ID = 1;
 	map<string, string> Tags = 2;
 }

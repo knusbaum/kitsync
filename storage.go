@@ -32,7 +32,7 @@ type IndexIterator interface {
 type Index interface {
 	Iter() (IndexIterator, error)
 	Present(hash string) bool
-	Tag(k, v string) (IndexIterator, error)
+	SearchTag(k, v string) (IndexIterator, error)
 }
 
 type Storage interface {

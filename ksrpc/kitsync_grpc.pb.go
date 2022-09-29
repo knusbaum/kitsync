@@ -24,11 +24,14 @@ const _ = grpc.SupportPackageIsVersion7
 type ControllerClient interface {
 	// Sends a greeting
 	Sync(ctx context.Context, in *Void, opts ...grpc.CallOption) (*Void, error)
-	Add(ctx context.Context, opts ...grpc.CallOption) (Controller_AddClient, error)
-	Search(ctx context.Context, in *Query, opts ...grpc.CallOption) (Controller_SearchClient, error)
+	Put(ctx context.Context, opts ...grpc.CallOption) (Controller_PutClient, error)
 	Lookup(ctx context.Context, in *ID, opts ...grpc.CallOption) (*LookupResult, error)
-	AddTags(ctx context.Context, in *TagsRequest, opts ...grpc.CallOption) (*Void, error)
-	DelTags(ctx context.Context, in *TagsRequest, opts ...grpc.CallOption) (*Void, error)
+	// Index functions
+	Search(ctx context.Context, in *Query, opts ...grpc.CallOption) (Controller_SearchClient, error)
+	// Object functions
+	AddTags(ctx context.Context, in *ObjectRequest, opts ...grpc.CallOption) (*Void, error)
+	DelTags(ctx context.Context, in *ObjectRequest, opts ...grpc.CallOption) (*Void, error)
+	Content(ctx context.Context, in *ObjectRequest, opts ...grpc.CallOption) (Controller_ContentClient, error)
 }
 
 type controllerClient struct {
@@ -48,30 +51,30 @@ func (c *controllerClient) Sync(ctx context.Context, in *Void, opts ...grpc.Call
 	return out, nil
 }
 
-func (c *controllerClient) Add(ctx context.Context, opts ...grpc.CallOption) (Controller_AddClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Controller_ServiceDesc.Streams[0], "/ksrpc.Controller/Add", opts...)
+func (c *controllerClient) Put(ctx context.Context, opts ...grpc.CallOption) (Controller_PutClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Controller_ServiceDesc.Streams[0], "/ksrpc.Controller/Put", opts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &controllerAddClient{stream}
+	x := &controllerPutClient{stream}
 	return x, nil
 }
 
-type Controller_AddClient interface {
+type Controller_PutClient interface {
 	Send(*ContentChunk) error
 	CloseAndRecv() (*AddReply, error)
 	grpc.ClientStream
 }
 
-type controllerAddClient struct {
+type controllerPutClient struct {
 	grpc.ClientStream
 }
 
-func (x *controllerAddClient) Send(m *ContentChunk) error {
+func (x *controllerPutClient) Send(m *ContentChunk) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *controllerAddClient) CloseAndRecv() (*AddReply, error) {
+func (x *controllerPutClient) CloseAndRecv() (*AddReply, error) {
 	if err := x.ClientStream.CloseSend(); err != nil {
 		return nil, err
 	}
@@ -80,6 +83,15 @@ func (x *controllerAddClient) CloseAndRecv() (*AddReply, error) {
 		return nil, err
 	}
 	return m, nil
+}
+
+func (c *controllerClient) Lookup(ctx context.Context, in *ID, opts ...grpc.CallOption) (*LookupResult, error) {
+	out := new(LookupResult)
+	err := c.cc.Invoke(ctx, "/ksrpc.Controller/Lookup", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *controllerClient) Search(ctx context.Context, in *Query, opts ...grpc.CallOption) (Controller_SearchClient, error) {
@@ -114,16 +126,7 @@ func (x *controllerSearchClient) Recv() (*ID, error) {
 	return m, nil
 }
 
-func (c *controllerClient) Lookup(ctx context.Context, in *ID, opts ...grpc.CallOption) (*LookupResult, error) {
-	out := new(LookupResult)
-	err := c.cc.Invoke(ctx, "/ksrpc.Controller/Lookup", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *controllerClient) AddTags(ctx context.Context, in *TagsRequest, opts ...grpc.CallOption) (*Void, error) {
+func (c *controllerClient) AddTags(ctx context.Context, in *ObjectRequest, opts ...grpc.CallOption) (*Void, error) {
 	out := new(Void)
 	err := c.cc.Invoke(ctx, "/ksrpc.Controller/AddTags", in, out, opts...)
 	if err != nil {
@@ -132,7 +135,7 @@ func (c *controllerClient) AddTags(ctx context.Context, in *TagsRequest, opts ..
 	return out, nil
 }
 
-func (c *controllerClient) DelTags(ctx context.Context, in *TagsRequest, opts ...grpc.CallOption) (*Void, error) {
+func (c *controllerClient) DelTags(ctx context.Context, in *ObjectRequest, opts ...grpc.CallOption) (*Void, error) {
 	out := new(Void)
 	err := c.cc.Invoke(ctx, "/ksrpc.Controller/DelTags", in, out, opts...)
 	if err != nil {
@@ -141,17 +144,52 @@ func (c *controllerClient) DelTags(ctx context.Context, in *TagsRequest, opts ..
 	return out, nil
 }
 
+func (c *controllerClient) Content(ctx context.Context, in *ObjectRequest, opts ...grpc.CallOption) (Controller_ContentClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Controller_ServiceDesc.Streams[2], "/ksrpc.Controller/Content", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &controllerContentClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type Controller_ContentClient interface {
+	Recv() (*ContentChunk, error)
+	grpc.ClientStream
+}
+
+type controllerContentClient struct {
+	grpc.ClientStream
+}
+
+func (x *controllerContentClient) Recv() (*ContentChunk, error) {
+	m := new(ContentChunk)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // ControllerServer is the server API for Controller service.
 // All implementations must embed UnimplementedControllerServer
 // for forward compatibility
 type ControllerServer interface {
 	// Sends a greeting
 	Sync(context.Context, *Void) (*Void, error)
-	Add(Controller_AddServer) error
-	Search(*Query, Controller_SearchServer) error
+	Put(Controller_PutServer) error
 	Lookup(context.Context, *ID) (*LookupResult, error)
-	AddTags(context.Context, *TagsRequest) (*Void, error)
-	DelTags(context.Context, *TagsRequest) (*Void, error)
+	// Index functions
+	Search(*Query, Controller_SearchServer) error
+	// Object functions
+	AddTags(context.Context, *ObjectRequest) (*Void, error)
+	DelTags(context.Context, *ObjectRequest) (*Void, error)
+	Content(*ObjectRequest, Controller_ContentServer) error
 	mustEmbedUnimplementedControllerServer()
 }
 
@@ -162,20 +200,23 @@ type UnimplementedControllerServer struct {
 func (UnimplementedControllerServer) Sync(context.Context, *Void) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Sync not implemented")
 }
-func (UnimplementedControllerServer) Add(Controller_AddServer) error {
-	return status.Errorf(codes.Unimplemented, "method Add not implemented")
-}
-func (UnimplementedControllerServer) Search(*Query, Controller_SearchServer) error {
-	return status.Errorf(codes.Unimplemented, "method Search not implemented")
+func (UnimplementedControllerServer) Put(Controller_PutServer) error {
+	return status.Errorf(codes.Unimplemented, "method Put not implemented")
 }
 func (UnimplementedControllerServer) Lookup(context.Context, *ID) (*LookupResult, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Lookup not implemented")
 }
-func (UnimplementedControllerServer) AddTags(context.Context, *TagsRequest) (*Void, error) {
+func (UnimplementedControllerServer) Search(*Query, Controller_SearchServer) error {
+	return status.Errorf(codes.Unimplemented, "method Search not implemented")
+}
+func (UnimplementedControllerServer) AddTags(context.Context, *ObjectRequest) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddTags not implemented")
 }
-func (UnimplementedControllerServer) DelTags(context.Context, *TagsRequest) (*Void, error) {
+func (UnimplementedControllerServer) DelTags(context.Context, *ObjectRequest) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DelTags not implemented")
+}
+func (UnimplementedControllerServer) Content(*ObjectRequest, Controller_ContentServer) error {
+	return status.Errorf(codes.Unimplemented, "method Content not implemented")
 }
 func (UnimplementedControllerServer) mustEmbedUnimplementedControllerServer() {}
 
@@ -208,30 +249,48 @@ func _Controller_Sync_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Controller_Add_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(ControllerServer).Add(&controllerAddServer{stream})
+func _Controller_Put_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ControllerServer).Put(&controllerPutServer{stream})
 }
 
-type Controller_AddServer interface {
+type Controller_PutServer interface {
 	SendAndClose(*AddReply) error
 	Recv() (*ContentChunk, error)
 	grpc.ServerStream
 }
 
-type controllerAddServer struct {
+type controllerPutServer struct {
 	grpc.ServerStream
 }
 
-func (x *controllerAddServer) SendAndClose(m *AddReply) error {
+func (x *controllerPutServer) SendAndClose(m *AddReply) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *controllerAddServer) Recv() (*ContentChunk, error) {
+func (x *controllerPutServer) Recv() (*ContentChunk, error) {
 	m := new(ContentChunk)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
 	return m, nil
+}
+
+func _Controller_Lookup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ID)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControllerServer).Lookup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/ksrpc.Controller/Lookup",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControllerServer).Lookup(ctx, req.(*ID))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Controller_Search_Handler(srv interface{}, stream grpc.ServerStream) error {
@@ -255,26 +314,8 @@ func (x *controllerSearchServer) Send(m *ID) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func _Controller_Lookup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ID)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(ControllerServer).Lookup(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/ksrpc.Controller/Lookup",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ControllerServer).Lookup(ctx, req.(*ID))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _Controller_AddTags_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(TagsRequest)
+	in := new(ObjectRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -286,13 +327,13 @@ func _Controller_AddTags_Handler(srv interface{}, ctx context.Context, dec func(
 		FullMethod: "/ksrpc.Controller/AddTags",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ControllerServer).AddTags(ctx, req.(*TagsRequest))
+		return srv.(ControllerServer).AddTags(ctx, req.(*ObjectRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _Controller_DelTags_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(TagsRequest)
+	in := new(ObjectRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -304,9 +345,30 @@ func _Controller_DelTags_Handler(srv interface{}, ctx context.Context, dec func(
 		FullMethod: "/ksrpc.Controller/DelTags",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ControllerServer).DelTags(ctx, req.(*TagsRequest))
+		return srv.(ControllerServer).DelTags(ctx, req.(*ObjectRequest))
 	}
 	return interceptor(ctx, in, info, handler)
+}
+
+func _Controller_Content_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ObjectRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ControllerServer).Content(m, &controllerContentServer{stream})
+}
+
+type Controller_ContentServer interface {
+	Send(*ContentChunk) error
+	grpc.ServerStream
+}
+
+type controllerContentServer struct {
+	grpc.ServerStream
+}
+
+func (x *controllerContentServer) Send(m *ContentChunk) error {
+	return x.ServerStream.SendMsg(m)
 }
 
 // Controller_ServiceDesc is the grpc.ServiceDesc for Controller service.
@@ -335,13 +397,18 @@ var Controller_ServiceDesc = grpc.ServiceDesc{
 	},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "Add",
-			Handler:       _Controller_Add_Handler,
+			StreamName:    "Put",
+			Handler:       _Controller_Put_Handler,
 			ClientStreams: true,
 		},
 		{
 			StreamName:    "Search",
 			Handler:       _Controller_Search_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "Content",
+			Handler:       _Controller_Content_Handler,
 			ServerStreams: true,
 		},
 	},
