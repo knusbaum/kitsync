@@ -84,13 +84,19 @@ func main() {
 		}
 
 		tags := meta.GetTags(*file)
+		vtags := make(map[string]string)
+		// Make sure all the tags are valid
+		for k, v := range tags {
+			fmt.Printf("[%s]: [%s]\n", k, v)
+			vtags[strings.ToValidUTF8(k, "")] = strings.ToValidUTF8(v, "")
+		}
 		//fmt.Printf("Uploading with tags: %#v\n", tags)
 		//panic("OK")
-		err = cli.Send(&ksrpc.ContentChunk{Tags: tags})
+		err = cli.Send(&ksrpc.ContentChunk{Tags: vtags})
 		if err != nil {
 			fmt.Printf("FILE: %s\n", *file)
 			fmt.Printf("While sending tags: Failed to send chunk: %v\n", err)
-			for k, v := range tags {
+			for k, v := range vtags {
 				fmt.Printf("[%s]: [%s]\n", k, v)
 			}
 			return
