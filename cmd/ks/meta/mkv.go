@@ -75,9 +75,9 @@ func (m *mkvHandler) HandleString(id mkvparse.ElementID, s string, e mkvparse.El
 			}
 		}
 	case mkvparse.TitleElement:
-		fmt.Printf("%s: %v\n", mkvparse.NameForElementID(id), s)
+		//fmt.Printf("%s: %v\n", mkvparse.NameForElementID(id), s)
 	default:
-		fmt.Printf("%s: %v\n", mkvparse.NameForElementID(id), s)
+		//	fmt.Printf("%s: %v\n", mkvparse.NameForElementID(id), s)
 	}
 	//fmt.Printf("ELEMENT ID: %X\n", id)
 	//fmt.Printf("STRING: %s\n", s)

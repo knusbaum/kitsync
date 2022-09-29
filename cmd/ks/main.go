@@ -118,7 +118,7 @@ func main() {
 			fmt.Printf("Failed to finish sending: %v\n", err)
 			return
 		}
-		fmt.Printf("%s\n", reply.ID)
+		fmt.Printf("REPLY: [%s]\n", reply.ID)
 
 	}
 	if *search != "" {
@@ -140,7 +140,7 @@ func main() {
 			if *verbose {
 				PrintLookup(c, id.ID)
 			} else {
-				fmt.Printf("%s\n", id.ID)
+				fmt.Printf("SEARCH: [%s]\n", id.ID)
 			}
 		}
 	}
@@ -173,7 +173,7 @@ func main() {
 			}
 			var c *ksrpc.ContentChunk
 			for c, err = s.Recv(); err == nil; c, err = s.Recv() {
-				fmt.Printf("%s", string(c.Data))
+				fmt.Printf("DATA: [%s]", string(c.Data))
 			}
 			if err != io.EOF {
 				fmt.Printf("ERROR: %s\n", err)
