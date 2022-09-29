@@ -126,7 +126,7 @@ func main() {
 			fmt.Printf("Failed to finish sending: %v\n", err)
 			return
 		}
-		fmt.Printf("REPLY: [%s]\n", reply.ID)
+		fmt.Printf("%s\n", reply.ID)
 
 	}
 	if *search != "" {
