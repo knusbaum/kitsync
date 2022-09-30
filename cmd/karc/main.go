@@ -20,10 +20,11 @@ import (
 )
 
 var (
-	addr    = flag.String("addr", "localhost:50051", "the address to connect to")
-	dir     = flag.String("dir", "", "The directory to archive")
-	argtags = flag.String("tags", "", "Extra tags to be provided on upload")
-	yes     = flag.Bool("y", false, "Automatic yes to uploading non-uploaded files")
+	addr       = flag.String("addr", "localhost:50051", "the address to connect to")
+	dir        = flag.String("dir", "", "The directory to archive")
+	argtags    = flag.String("tags", "", "Extra tags to be provided on upload")
+	discovered = flag.Bool("add-discovered", false, "Automatic yes to adding discovered tags to new files")
+	yes        = flag.Bool("y", false, "Automatic yes to uploading new files")
 )
 
 func errorf(s string, a ...interface{}) {
@@ -160,7 +161,7 @@ func addFile(c ksrpc.ControllerClient, f string) {
 	}
 	printSortedTags(vtags)
 
-	if promptYN("Add discovered tags?", true) {
+	if *discovered || promptYN("Add discovered tags?", true) {
 		tags = vtags
 	}
 
