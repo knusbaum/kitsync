@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -19,8 +20,10 @@ import (
 )
 
 var (
-	addr = flag.String("addr", "localhost:50051", "the address to connect to")
-	dir  = flag.String("dir", "", "The directory to archive")
+	addr    = flag.String("addr", "localhost:50051", "the address to connect to")
+	dir     = flag.String("dir", "", "The directory to archive")
+	argtags = flag.String("tags", "", "Extra tags to be provided on upload")
+	yes     = flag.Bool("y", false, "Automatic yes to uploading non-uploaded files")
 )
 
 func errorf(s string, a ...interface{}) {
@@ -108,6 +111,17 @@ func MergeTags(dst, src map[string]string) {
 	}
 }
 
+func printSortedTags(tags map[string]string) {
+	var ks []string
+	for k := range tags {
+		ks = append(ks, k)
+	}
+	sort.Strings(ks)
+	for _, k := range ks {
+		fmt.Printf("\t%s: %s\n", k, tags[k])
+	}
+}
+
 func addFile(c ksrpc.ControllerClient, f string) {
 	id, err := fileHash(f)
 	if err != nil {
@@ -122,13 +136,14 @@ func addFile(c ksrpc.ControllerClient, f string) {
 	}
 	if r.Present {
 		fmt.Printf("%s already exists with tags:\n", id)
-		for k, v := range r.Tags {
-			fmt.Printf("\t%s: %s\n", k, v)
-		}
+		// 		for k, v := range r.Tags {
+		// 			fmt.Printf("\t%s: %s\n", k, v)
+		// 		}
+		printSortedTags(r.Tags)
 		return
 	}
 
-	if !promptYN(fmt.Sprintf("Add file %s (%s)?", f, id), true) {
+	if !(*yes || promptYN(fmt.Sprintf("Add file %s (%s)?", f, id), true)) {
 		return
 	}
 
@@ -141,24 +156,35 @@ func addFile(c ksrpc.ControllerClient, f string) {
 		nk := strings.ToValidUTF8(k, "")
 		nv := strings.ToValidUTF8(v, "")
 		vtags[nk] = nv
-		fmt.Printf("\t%s: %s\n", nk, nv)
+		//fmt.Printf("\t%s: %s\n", nk, nv)
 	}
+	printSortedTags(vtags)
 
 	if promptYN("Add discovered tags?", true) {
 		tags = vtags
 	}
 
-	htags, err := promptTags("Add additional tags?")
-	if err != nil {
-		errorf("Failed to answer prompt: %s\nSkipping %s\n", err, f)
-		return
+	var htags map[string]string
+	if *argtags == "" {
+		htags, err = promptTags("Add additional tags?")
+		if err != nil {
+			errorf("Failed to answer prompt: %s\nSkipping %s\n", err, f)
+			return
+		}
+	} else {
+		htags, err = parseTags(*argtags)
+		if err != nil {
+			errorf("Failed to parse tags: %s\nTry again...\n", err)
+			return
+		}
 	}
 
 	MergeTags(tags, htags)
 	fmt.Printf("\n##########\n%s (%s)\nTags:\n", f, id)
-	for k, v := range tags {
-		fmt.Printf("\t%s: %s\n", k, v)
-	}
+	// 	for k, v := range tags {
+	// 		fmt.Printf("\t%s: %s\n", k, v)
+	// 	}
+	printSortedTags(tags)
 
 	if promptYN("Upload?", true) {
 		rid, err := client.Upload(context.Background(), c, f, tags)
