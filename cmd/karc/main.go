@@ -226,6 +226,10 @@ func recursiveArchive(c ksrpc.ControllerClient, d string) {
 
 func parseTags(s string) (map[string]string, error) {
 	m := make(map[string]string)
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return m, nil
+	}
 	parts := strings.Split(s, ",")
 	for _, p := range parts {
 		kv := strings.SplitN(p, ":", 2)
