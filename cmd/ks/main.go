@@ -10,6 +10,7 @@ import (
 	"runtime/pprof"
 	"strings"
 
+	"github.com/knusbaum/kitsync/client"
 	"github.com/knusbaum/kitsync/cmd/ks/meta"
 	"github.com/knusbaum/kitsync/ksrpc"
 
@@ -34,6 +35,10 @@ var (
 )
 
 func parseTags(s string) map[string]string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
 	m := make(map[string]string)
 	parts := strings.Split(s, ",")
 	for _, p := range parts {
@@ -42,8 +47,8 @@ func parseTags(s string) map[string]string {
 			fmt.Printf("Unable to parse tag: %s. Skipping.\n", p)
 			continue
 		}
-		k := kv[0]
-		v := kv[1]
+		k := strings.TrimSpace(kv[0])
+		v := strings.TrimSpace(kv[1])
 		m[k] = v
 	}
 	return m
@@ -87,16 +92,6 @@ func main() {
 			fmt.Printf("Cannot upload directories (yet).")
 			return
 		}
-		f, err := os.Open(*file)
-		if err != nil {
-			fmt.Printf("Failed to open %s: %v\n", *file, err)
-			return
-		}
-
-		cli, err := c.Put(context.Background())
-		if err != nil {
-			fmt.Printf("Failed to add %s: %v\n", *file, err)
-		}
 
 		mtags := meta.GetTags(*file)
 		meta.MergeTags(mtags, parseTags(*tags))
@@ -106,44 +101,63 @@ func main() {
 			vtags[strings.ToValidUTF8(k, "")] = strings.ToValidUTF8(v, "")
 		}
 
-		//fmt.Printf("Uploading with tags: %#v\n", tags)
-		//panic("OK")
-		err = cli.Send(&ksrpc.ContentChunk{Tags: vtags})
+		rid, err := client.Upload(context.Background(), c, *file, vtags)
 		if err != nil {
-			fmt.Printf("FILE: %s\n", *file)
-			fmt.Printf("While sending tags: Failed to send chunk: %v\n", err)
-			for k, v := range vtags {
-				fmt.Printf("[%s]: [%s]\n", k, v)
-			}
+			fmt.Printf("Error while uploading %s: %v\n", *file, err)
 			return
 		}
-		for {
-			var bbs [4096]byte
-			bs := bbs[:]
-			n, err := f.Read(bs)
-			if err != nil && err != io.EOF {
-				fmt.Printf("Failed to read %s: %v\n", *file, err)
-				// TODO: handle closing cli properly
-				return
-			}
-			bs = bs[:n]
+		fmt.Printf("%s\n", rid)
+		return
 
-			err = cli.Send(&ksrpc.ContentChunk{Data: bs})
-			if err != nil {
-				fmt.Printf("FILE: %s\n", *file)
-				fmt.Printf("While sending data (%d bytes): Failed to send chunk: %v\n", len(bs), err)
-				return
-			}
-			if len(bs) == 0 {
-				break
-			}
-		}
-		reply, err := cli.CloseAndRecv()
-		if err != nil {
-			fmt.Printf("Failed to finish sending: %v\n", err)
-			return
-		}
-		fmt.Printf("%s\n", reply.ID)
+		// 		f, err := os.Open(*file)
+		// 		if err != nil {
+		// 			fmt.Printf("Failed to open %s: %v\n", *file, err)
+		// 			return
+		// 		}
+		//
+		// 		cli, err := c.Put(context.Background())
+		// 		if err != nil {
+		// 			fmt.Printf("Failed to add %s: %v\n", *file, err)
+		// 		}
+		//
+		// 		//fmt.Printf("Uploading with tags: %#v\n", tags)
+		// 		//panic("OK")
+		// 		err = cli.Send(&ksrpc.ContentChunk{Tags: vtags})
+		// 		if err != nil {
+		// 			fmt.Printf("FILE: %s\n", *file)
+		// 			fmt.Printf("While sending tags: Failed to send chunk: %v\n", err)
+		// 			for k, v := range vtags {
+		// 				fmt.Printf("[%s]: [%s]\n", k, v)
+		// 			}
+		// 			return
+		// 		}
+		// 		for {
+		// 			var bbs [4096]byte
+		// 			bs := bbs[:]
+		// 			n, err := f.Read(bs)
+		// 			if err != nil && err != io.EOF {
+		// 				fmt.Printf("Failed to read %s: %v\n", *file, err)
+		// 				// TODO: handle closing cli properly
+		// 				return
+		// 			}
+		// 			bs = bs[:n]
+		//
+		// 			err = cli.Send(&ksrpc.ContentChunk{Data: bs})
+		// 			if err != nil {
+		// 				fmt.Printf("FILE: %s\n", *file)
+		// 				fmt.Printf("While sending data (%d bytes): Failed to send chunk: %v\n", len(bs), err)
+		// 				return
+		// 			}
+		// 			if len(bs) == 0 {
+		// 				break
+		// 			}
+		// 		}
+		// 		reply, err := cli.CloseAndRecv()
+		// 		if err != nil {
+		// 			fmt.Printf("Failed to finish sending: %v\n", err)
+		// 			return
+		// 		}
+		// 		fmt.Printf("%s\n", reply.ID)
 
 	}
 	if *search != "" {
