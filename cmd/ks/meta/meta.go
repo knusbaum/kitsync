@@ -16,17 +16,17 @@ import (
 func GetTags(fname string) map[string]string {
 	tags := make(map[string]string)
 	if mtags, err := getMediaTags(fname); err == nil {
-		merge(tags, mtags)
+		MergeTags(tags, mtags)
 	}
 	// Need to detect when EXIF is likely, because this operation is expensive (it scans the full file)
 	// 	if exifTags, err := getEXIFTags(fname); err == nil {
 	// 		merge(tags, exifTags)
 	// 	}
 	if mp4Tags, err := getMP4Tags(fname); err == nil {
-		merge(tags, mp4Tags)
+		MergeTags(tags, mp4Tags)
 	}
 	if mkvTags, err := getMKVTags(fname); err == nil {
-		merge(tags, mkvTags)
+		MergeTags(tags, mkvTags)
 	}
 	if mime, _ := detectMIME(fname); mime != "" {
 		tags["mime"] = mime
@@ -41,7 +41,8 @@ func GetTags(fname string) map[string]string {
 	return tags
 }
 
-func merge(dst, src map[string]string) {
+// MergeTags adds all the tags in src to dst. Tags already present in dst are overwritten.
+func MergeTags(dst, src map[string]string) {
 	for k, v := range src {
 		dst[k] = v
 	}

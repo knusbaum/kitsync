@@ -9,7 +9,6 @@ import (
 	"os"
 	"runtime/pprof"
 	"strings"
-	"time"
 
 	"github.com/knusbaum/kitsync/cmd/ks/meta"
 	"github.com/knusbaum/kitsync/ksrpc"
@@ -19,33 +18,49 @@ import (
 )
 
 var (
-	addr    = flag.String("addr", "localhost:50051", "the address to connect to")
-	file    = flag.String("file", "", "the file to add to ksd")
-	s       = flag.Bool("sync", false, "causes ksd to manually sync all storages")
-	search  = flag.String("search", "", "colon-separated key/value pair to search for.")
-	id      = flag.String("id", "", "Without other args, gets the tags for an ID.")
-	setkey  = flag.String("setkey", "", "colon-separated key/value pair to set on -id.")
-	delkey  = flag.String("delkey", "", "key to delete on -id.")
+	addr   = flag.String("addr", "localhost:50051", "the address to connect to")
+	file   = flag.String("file", "", "adds a file to ksd. Optionally specify -tags to add")
+	s      = flag.Bool("sync", false, "causes ksd to manually sync all storages")
+	search = flag.String("search", "", "colon-separated key/value pair to search for.")
+	id     = flag.String("id", "", "Without other args, gets the tags for an ID.")
+	tags   = flag.String("tags", "", "Comma-separated sets of colon-separated key/value pairs.")
+	set    = flag.Bool("set", false, "Causes -tags to be added to -id")
+	del    = flag.Bool("del", false, "Causes -tags to be deleted from -id")
+	//setkey  = flag.String("setkey", "", "colon-separated key/value pair to set on -id.")
+	//delkey  = flag.String("delkey", "", "key to delete on -id.")
 	cat     = flag.Bool("cat", false, "causes ksd to write the file specified by -id to stdout")
 	verbose = flag.Bool("v", false, "controls the verbosity of the various commands")
+	profile = flag.Bool("profile", false, "Write out a profile for the program - useful only for debugging.")
 )
 
+func parseTags(s string) map[string]string {
+	m := make(map[string]string)
+	parts := strings.Split(s, ",")
+	for _, p := range parts {
+		kv := strings.SplitN(p, ":", 2)
+		if len(kv) != 2 {
+			fmt.Printf("Unable to parse tag: %s. Skipping.\n", p)
+			continue
+		}
+		k := kv[0]
+		v := kv[1]
+		m[k] = v
+	}
+	return m
+}
+
 func main() {
-	f, err := os.Create("cpu.pprof")
-	if err != nil {
-		log.Fatal("could not create CPU profile: ", err)
+	if *profile {
+		f, err := os.Create("cpu.pprof")
+		if err != nil {
+			log.Fatal("could not create CPU profile: ", err)
+		}
+		defer f.Close() // error handling omitted for example
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatal("could not start CPU profile: ", err)
+		}
+		defer pprof.StopCPUProfile()
 	}
-	defer f.Close() // error handling omitted for example
-	if err := pprof.StartCPUProfile(f); err != nil {
-		log.Fatal("could not start CPU profile: ", err)
-	}
-	defer pprof.StopCPUProfile()
-	go func() {
-		<-time.After(10 * time.Second)
-		pprof.StopCPUProfile()
-		f.Close()
-		panic("DONE")
-	}()
 
 	flag.Parse()
 	// Set up a connection to the server.
@@ -83,12 +98,14 @@ func main() {
 			fmt.Printf("Failed to add %s: %v\n", *file, err)
 		}
 
-		tags := meta.GetTags(*file)
-		vtags := make(map[string]string)
+		mtags := meta.GetTags(*file)
+		meta.MergeTags(mtags, parseTags(*tags))
 		// Make sure all the tags are valid
-		for k, v := range tags {
+		vtags := make(map[string]string)
+		for k, v := range mtags {
 			vtags[strings.ToValidUTF8(k, "")] = strings.ToValidUTF8(v, "")
 		}
+
 		//fmt.Printf("Uploading with tags: %#v\n", tags)
 		//panic("OK")
 		err = cli.Send(&ksrpc.ContentChunk{Tags: vtags})
@@ -153,22 +170,44 @@ func main() {
 		}
 	}
 	if *id != "" {
-		if *setkey != "" {
-			parts := strings.SplitN(*setkey, ":", 2)
-			var key, value string
-			if len(parts) != 2 {
-				fmt.Printf("Expected a key and value, separated by a colon, but found: \"%s\".\n", *setkey)
+		if *set {
+			// 			parts := strings.SplitN(*tags, ":", 2)
+			// 			var key, value string
+			// 			if len(parts) != 2 {
+			// 				fmt.Printf("Expected a key and value, separated by a colon, but found: \"%s\".\n", *setkey)
+			// 				return
+			// 			}
+			// 			key = parts[0]
+			// 			value = parts[1]
+			tags := parseTags(*tags)
+			if len(tags) == 0 {
+				fmt.Printf("No tags to be added.\n")
 				return
 			}
-			key = parts[0]
-			value = parts[1]
-			_, err := c.AddTags(context.Background(), &ksrpc.ObjectRequest{ID: *id, Tags: map[string]string{key: value}})
+			if *verbose {
+				fmt.Printf("Adding tags to %s:\n", *id)
+				for k, v := range tags {
+					fmt.Printf("\t%s:%s\n", k, v)
+				}
+			}
+			_, err := c.AddTags(context.Background(), &ksrpc.ObjectRequest{ID: *id, Tags: tags})
 			if err != nil {
 				fmt.Printf("Failed to set tags on %s: %v\n", *id, err)
 				return
 			}
-		} else if *delkey != "" {
-			_, err := c.DelTags(context.Background(), &ksrpc.ObjectRequest{ID: *id, Tags: map[string]string{*delkey: ""}})
+		} else if *del {
+			tags := parseTags(*tags)
+			if len(tags) == 0 {
+				fmt.Printf("No tags to be deleted.\n")
+				return
+			}
+			if *verbose {
+				fmt.Printf("Deleting tags from %s:\n", *id)
+				for k := range tags {
+					fmt.Printf("\t%s\n", k)
+				}
+			}
+			_, err := c.DelTags(context.Background(), &ksrpc.ObjectRequest{ID: *id, Tags: tags})
 			if err != nil {
 				fmt.Printf("Failed to set tags on %s: %v\n", *id, err)
 				return
@@ -192,7 +231,7 @@ func main() {
 		//else {
 		PrintLookup(c, *id)
 		//}
-	} else if *setkey != "" || *delkey != "" {
+	} else if *set || *del {
 		fmt.Printf("Need to specify -id to set/delete tags.\n")
 	}
 }
