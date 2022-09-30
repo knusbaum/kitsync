@@ -24,6 +24,7 @@ var (
 	dir        = flag.String("dir", "", "The directory to archive")
 	argtags    = flag.String("tags", "", "Extra tags to be provided on upload")
 	discovered = flag.Bool("add-discovered", false, "Automatic yes to adding discovered tags to new files")
+	skiptags   = flag.Bool("skip-tags", false, "Skip asking for additional tags")
 	yes        = flag.Bool("y", false, "Automatic yes to uploading new files")
 )
 
@@ -165,19 +166,18 @@ func addFile(c ksrpc.ControllerClient, f string) {
 		tags = vtags
 	}
 
-	var htags map[string]string
-	if *argtags == "" {
-		htags, err = promptTags("Add additional tags?")
+	htags, err := parseTags(*argtags)
+	if err != nil {
+		errorf("Failed to parse tags: %s\nTry again...\n", err)
+		return
+	}
+	if !*skiptags {
+		atags, err := promptTags("Add additional tags?")
 		if err != nil {
 			errorf("Failed to answer prompt: %s\nSkipping %s\n", err, f)
 			return
 		}
-	} else {
-		htags, err = parseTags(*argtags)
-		if err != nil {
-			errorf("Failed to parse tags: %s\nTry again...\n", err)
-			return
-		}
+		MergeTags(htags, atags)
 	}
 
 	MergeTags(tags, htags)
