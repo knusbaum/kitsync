@@ -154,19 +154,22 @@ func addFile(c ksrpc.ControllerClient, f string) {
 
 	var tags map[string]string
 	mtags := meta.GetTags(f)
-	// MergeTags(mtags, parseTags(*tags))
-	// 	// Make sure all the tags are valid
+	// Make sure all the tags are valid
 	vtags := make(map[string]string)
 	for k, v := range mtags {
 		nk := strings.ToValidUTF8(k, "")
 		nv := strings.ToValidUTF8(v, "")
 		vtags[nk] = nv
-		//fmt.Printf("\t%s: %s\n", nk, nv)
 	}
-	printSortedTags(vtags)
 
-	if *discovered || promptYN("Add discovered tags?", true) {
+	if *discovered {
 		tags = vtags
+	} else {
+		fmt.Printf("########## Discovered tags:\n")
+		printSortedTags(vtags)
+		if promptYN("Add discovered tags?", true) {
+			tags = vtags
+		}
 	}
 
 	htags, err := parseTags(*argtags)
@@ -176,6 +179,7 @@ func addFile(c ksrpc.ControllerClient, f string) {
 	}
 	MergeTags(tags, htags)
 	if !*skiptags {
+		fmt.Printf("########## Current tags:\n")
 		printSortedTags(tags)
 		atags, err := promptTags("Add additional tags?")
 		if err != nil {
