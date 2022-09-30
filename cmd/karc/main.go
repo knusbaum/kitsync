@@ -148,6 +148,9 @@ func addFile(c ksrpc.ControllerClient, f string) {
 	if !(*yes || promptYN(fmt.Sprintf("Add file %s (%s)?", f, id), true)) {
 		return
 	}
+	if *yes {
+		fmt.Printf("Adding file %s (%s)\n", f, id)
+	}
 
 	var tags map[string]string
 	mtags := meta.GetTags(f)
@@ -171,16 +174,17 @@ func addFile(c ksrpc.ControllerClient, f string) {
 		errorf("Failed to parse tags: %s\nTry again...\n", err)
 		return
 	}
+	MergeTags(tags, htags)
 	if !*skiptags {
+		printSortedTags(tags)
 		atags, err := promptTags("Add additional tags?")
 		if err != nil {
 			errorf("Failed to answer prompt: %s\nSkipping %s\n", err, f)
 			return
 		}
-		MergeTags(htags, atags)
+		MergeTags(tags, atags)
 	}
 
-	MergeTags(tags, htags)
 	fmt.Printf("\n##########\n%s (%s)\nTags:\n", f, id)
 	// 	for k, v := range tags {
 	// 		fmt.Printf("\t%s: %s\n", k, v)
