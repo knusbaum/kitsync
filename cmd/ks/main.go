@@ -220,12 +220,18 @@ func main() {
 			}
 			var c *ksrpc.ContentChunk
 			for c, err = s.Recv(); err == nil; c, err = s.Recv() {
-				fmt.Printf("DATA: [%s]", string(c.Data))
+				//fmt.Printf("DATA: [%s]", string(c.Data))
+				_, err := os.Stdout.Write(c.Data)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+					os.Exit(1)
+				}
 			}
 			if err != io.EOF {
-				fmt.Printf("ERROR: %s\n", err)
+				fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 				os.Exit(1)
 			}
+			//fmt.Printf("Done!\n")
 			os.Exit(0)
 		}
 		//else {
