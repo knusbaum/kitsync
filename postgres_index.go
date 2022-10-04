@@ -194,16 +194,16 @@ func (i *psqlIndex) Add(o Object) error {
 	}
 
 	for k, v := range tags {
-		k = strings.TrimSpace(k)
+		k = kitsync.CleanString(k)
 		if k == "" {
 			for _, tag := range strings.Split(v, " ") {
-				_, err := i.db.Exec("INSERT INTO keyless (oid, tag) values ($1, $2)", oid, strings.TrimSpace(tag))
+				_, err := i.db.Exec("INSERT INTO keyless (oid, tag) values ($1, $2)", oid, kitsync.CleanString(tag))
 				if err != nil {
 					return err
 				}
 			}
 		} else {
-			_, err := i.db.Exec("INSERT INTO tags (oid, key, value) values ($1, $2, $3)", oid, strings.TrimSpace(k), strings.TrimSpace(v))
+			_, err := i.db.Exec("INSERT INTO tags (oid, key, value) values ($1, $2, $3)", oid, k, kitsync.CleanString(v))
 			if err != nil {
 				return err
 			}
