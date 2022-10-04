@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/knusbaum/kitsync/client"
 )
 
 type fsObject struct {
@@ -169,42 +171,6 @@ func (o *fsObject) lockedLoadTags() error {
 	return nil
 }
 
-func addKeyless(existing, new string) string {
-	es := strings.Split(existing, " ")
-	news := strings.Split(new, " ")
-out:
-	for _, n := range news {
-		n = strings.TrimSpace(n)
-		for _, e := range es {
-			if e == n {
-				continue out
-			}
-		}
-		es = append(es, n)
-	}
-	fmt.Printf("Added %#v to %s: %#v\n", news, existing, es)
-	return strings.TrimSpace(strings.Join(es, " "))
-}
-
-func removeKeyless(existing, remove string) string {
-	es := strings.Split(existing, " ")
-	rems := strings.Split(remove, " ")
-	for _, n := range rems {
-		n = strings.TrimSpace(n)
-		k := 0
-		for ei, e := range es {
-			if e == n {
-				continue
-			}
-			es[k] = es[ei]
-			k++
-		}
-		es = es[:k]
-	}
-	fmt.Printf("Removed %#v from %s: %#v\n", rems, existing, es)
-	return strings.Join(es, " ")
-}
-
 func (o *fsObject) addTag(k, v string) error {
 	o.l.Lock()
 	defer o.l.Unlock()
@@ -213,7 +179,7 @@ func (o *fsObject) addTag(k, v string) error {
 		return err
 	}
 	if k == "" {
-		o.tags[""] = addKeyless(o.tags[""], v)
+		o.tags[""] = client.MergeKeyless(o.tags[""], v)
 	} else {
 		o.tags[k] = v
 	}
@@ -255,7 +221,7 @@ func (o *fsObject) delTag(k string) error {
 	}
 	if strings.HasPrefix(k, ":") {
 		k = strings.TrimPrefix(k, ":")
-		if v := removeKeyless(o.tags[""], k); v != "" {
+		if v := client.RemoveKeyless(o.tags[""], k); v != "" {
 			o.tags[""] = v
 		} else {
 			delete(o.tags, "")

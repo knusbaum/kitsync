@@ -106,13 +106,6 @@ func promptTags(s string) (map[string]string, error) {
 	}
 }
 
-// MergeTags adds all the tags in src to dst. Tags already present in dst are overwritten.
-func MergeTags(dst, src map[string]string) {
-	for k, v := range src {
-		dst[k] = v
-	}
-}
-
 func addFile(c ksrpc.ControllerClient, f string) {
 	id, err := fileHash(f)
 	if err != nil {
@@ -166,7 +159,7 @@ func addFile(c ksrpc.ControllerClient, f string) {
 		errorf("Failed to parse tags: %s\nTry again...\n", err)
 		return
 	}
-	MergeTags(tags, htags)
+	client.MergeTags(tags, htags)
 	if !*skiptags {
 		fmt.Printf("########## Current tags:\n")
 		client.PrintSortedTags(tags)
@@ -175,7 +168,7 @@ func addFile(c ksrpc.ControllerClient, f string) {
 			errorf("Failed to answer prompt: %s\nSkipping %s\n", err, f)
 			return
 		}
-		MergeTags(tags, atags)
+		client.MergeTags(tags, atags)
 	}
 
 	fmt.Printf("\n##########\n%s (%s)\nTags:\n", f, id)

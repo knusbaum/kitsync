@@ -11,22 +11,23 @@ import (
 	"github.com/dsoprea/go-exif/v3"
 	exifcommon "github.com/dsoprea/go-exif/v3/common"
 	"github.com/gabriel-vasile/mimetype"
+	"github.com/knusbaum/kitsync/client"
 )
 
 func GetTags(fname string) map[string]string {
 	tags := make(map[string]string)
 	if mtags, err := getMediaTags(fname); err == nil {
-		MergeTags(tags, mtags)
+		client.MergeTags(tags, mtags)
 	}
 	// Need to detect when EXIF is likely, because this operation is expensive (it scans the full file)
 	// 	if exifTags, err := getEXIFTags(fname); err == nil {
 	// 		merge(tags, exifTags)
 	// 	}
 	if mp4Tags, err := getMP4Tags(fname); err == nil {
-		MergeTags(tags, mp4Tags)
+		client.MergeTags(tags, mp4Tags)
 	}
 	if mkvTags, err := getMKVTags(fname); err == nil {
-		MergeTags(tags, mkvTags)
+		client.MergeTags(tags, mkvTags)
 	}
 	if mime, _ := detectMIME(fname); mime != "" {
 		tags["mime"] = mime
@@ -39,13 +40,6 @@ func GetTags(fname string) map[string]string {
 		tags["file_name"] = base
 	}
 	return tags
-}
-
-// MergeTags adds all the tags in src to dst. Tags already present in dst are overwritten.
-func MergeTags(dst, src map[string]string) {
-	for k, v := range src {
-		dst[k] = v
-	}
 }
 
 func detectMIME(fname string) (string, error) {

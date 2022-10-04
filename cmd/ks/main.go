@@ -108,7 +108,7 @@ func main() {
 		}
 
 		mtags := meta.GetTags(*file)
-		meta.MergeTags(mtags, parseTags(*tags))
+		client.MergeTags(mtags, parseTags(*tags))
 		// Make sure all the tags are valid
 		vtags := make(map[string]string)
 		for k, v := range mtags {
