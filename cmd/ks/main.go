@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"log"
 	"os"
 	"runtime/pprof"
+	"strconv"
 	"strings"
 
 	"github.com/knusbaum/kitsync/client"
@@ -30,6 +32,7 @@ var (
 	set     = flag.Bool("set", false, "Causes -tags to be added to -id")
 	rem     = flag.Bool("rem", false, "Causes -tags to be removed from -id")
 	del     = flag.Bool("del", false, "Causes -id to be deleted")
+	yes     = flag.Bool("yes", false, "Causes the -del function to *NOT* confirm before deleting.")
 	//setkey  = flag.String("setkey", "", "colon-separated key/value pair to set on -id.")
 	//delkey  = flag.String("delkey", "", "key to delete on -id.")
 	cat     = flag.Bool("cat", false, "causes ksd to write the file specified by -id to stdout")
@@ -256,6 +259,9 @@ func main() {
 	}
 	if *id != "" {
 		if *del {
+			if !(*yes || promptYN(fmt.Sprintf("Delete %s?", id), false)) {
+				return
+			}
 			_, err = c.Delete(context.Background(), &ksrpc.ID{ID: *id})
 			if err != nil {
 				log.Fatalf("failed to sync: %v", err)
@@ -324,6 +330,38 @@ func main() {
 		//}
 	} else if *set || *rem {
 		fmt.Printf("Need to specify -id to set/delete tags.\n")
+	}
+}
+
+var in = bufio.NewReader(os.Stdin)
+
+func promptYN(s string, def bool) bool {
+	for {
+		fmt.Printf("%s (Y/n): ", s)
+		l, err := in.ReadString('\n')
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to answer prompt: %s\n", err)
+			continue
+		}
+		l = strings.ToLower(strings.TrimSpace(l))
+		switch l {
+		case "":
+			return def
+		case "y":
+			fallthrough
+		case "yes":
+			return true
+		case "n":
+			fallthrough
+		case "no":
+			return false
+		}
+		b, err := strconv.ParseBool(l)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Don't understand \"%s\"\nTry again...\n", l)
+			continue
+		}
+		return b
 	}
 }
 
