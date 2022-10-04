@@ -226,6 +226,10 @@ func (j *Journal[T]) Add(v T) (uint64, error) {
 func (j *Journal[T]) Get(i uint64) (T, error) {
 	j.l.RLock()
 	defer j.l.RUnlock()
+	if i == 0 {
+		var ret T
+		return ret, ErrNotPresent
+	}
 	e := j.cbuf[j.cindex(i)]
 	if e.I != i {
 		var ret T

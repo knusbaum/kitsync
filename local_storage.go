@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -180,6 +181,42 @@ func (o *fsObject) lockedLoadTags() error {
 	return nil
 }
 
+func addKeyless(existing, new string) string {
+	es := strings.Split(existing, " ")
+	news := strings.Split(new, " ")
+out:
+	for _, n := range news {
+		n = strings.TrimSpace(n)
+		for _, e := range es {
+			if e == n {
+				continue out
+			}
+		}
+		es = append(es, n)
+	}
+	fmt.Printf("Added %#v to %s: %#v\n", news, existing, es)
+	return strings.TrimSpace(strings.Join(es, " "))
+}
+
+func removeKeyless(existing, remove string) string {
+	es := strings.Split(existing, " ")
+	rems := strings.Split(remove, " ")
+	for _, n := range rems {
+		n = strings.TrimSpace(n)
+		k := 0
+		for ei, e := range es {
+			if e == n {
+				continue
+			}
+			es[k] = es[ei]
+			k++
+		}
+		es = es[:k]
+	}
+	fmt.Printf("Removed %#v from %s: %#v\n", rems, existing, es)
+	return strings.Join(es, " ")
+}
+
 func (o *fsObject) addTag(k, v string) error {
 	o.l.Lock()
 	defer o.l.Unlock()
@@ -187,7 +224,11 @@ func (o *fsObject) addTag(k, v string) error {
 	if err != nil {
 		return err
 	}
-	o.tags[k] = v
+	if k == "" {
+		o.tags[""] = addKeyless(o.tags[""], v)
+	} else {
+		o.tags[k] = v
+	}
 	f, err := os.Create(o.path + ".tags")
 	if err != nil {
 		return err
@@ -211,7 +252,7 @@ func (o *fsObject) AddTag(k, v string) error {
 	// Update the index
 	err = o.s.idx.Add(o)
 	if err != nil {
-		log.Printf("Failed to index tags for %s: %v", o.id, err)
+		log.Printf("(AddTag) Failed to index tags for %s: %v", o.id, err)
 	}
 
 	return nil
@@ -224,7 +265,16 @@ func (o *fsObject) delTag(k string) error {
 	if err != nil {
 		return err
 	}
-	delete(o.tags, k)
+	if strings.HasPrefix(k, ":") {
+		k = strings.TrimPrefix(k, ":")
+		if v := removeKeyless(o.tags[""], k); v != "" {
+			o.tags[""] = v
+		} else {
+			delete(o.tags, "")
+		}
+	} else {
+		delete(o.tags, k)
+	}
 	f, err := os.Create(o.path + ".tags")
 	if err != nil {
 		return err
@@ -248,7 +298,7 @@ func (o *fsObject) DelTag(k string) error {
 	// Update the index
 	err = o.s.idx.Add(o)
 	if err != nil {
-		log.Printf("Failed to index tags for %s: %v", o.id, err)
+		log.Printf("(DelTag) Failed to index tags for %s: %v", o.id, err)
 	}
 
 	return nil
@@ -281,7 +331,8 @@ func pathForHash(hash string) string {
 
 type fsStorage struct {
 	root string
-	idx  *fsIndex
+	//idx  *fsIndex
+	idx *psqlIndex
 }
 
 func (s *fsStorage) String() string {
@@ -322,7 +373,7 @@ func (s *fsStorage) Put(o Object) error {
 	// Update the index
 	err = s.idx.Add(o)
 	if err != nil {
-		log.Printf("Failed to index tags for %s: %v", h, err)
+		log.Printf("(Put) Failed to index tags for %s: %v", h, err)
 	}
 
 	// Write updated file
@@ -414,10 +465,15 @@ func (s *fsStorage) Close() error {
 }
 
 func NewFSStorage(path string) (Storage, error) {
-	idx, err := openFSIndex(path)
+	// 	idx, err := openFSIndex(path)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	idx, err := newPsqlIndex("127.0.0.1", 5432, "postgres", "example", strings.Replace(path, "/", "_", -1))
 	if err != nil {
 		return nil, err
 	}
+
 	return &fsStorage{
 		root: path,
 		idx:  idx,

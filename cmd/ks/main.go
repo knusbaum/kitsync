@@ -175,12 +175,16 @@ func main() {
 			return
 		}
 
-		for id, err := cli.Recv(); err == nil; id, err = cli.Recv() {
+		var kid *ksrpc.ID
+		for kid, err = cli.Recv(); err == nil; kid, err = cli.Recv() {
 			if *verbose {
-				PrintLookup(c, id.ID)
+				PrintLookup(c, kid.ID)
 			} else {
-				fmt.Printf("SEARCH: [%s]\n", id.ID)
+				fmt.Printf("SEARCH: [%s]\n", kid.ID)
 			}
+		}
+		if err != io.EOF {
+			fmt.Printf("Error: %v\n", err)
 		}
 	}
 	if *id != "" {
@@ -200,9 +204,10 @@ func main() {
 			}
 			if *verbose {
 				fmt.Printf("Adding tags to %s:\n", *id)
-				for k, v := range tags {
-					fmt.Printf("\t%s:%s\n", k, v)
-				}
+				// 				for k, v := range tags {
+				// 					fmt.Printf("\t%s:%s\n", k, v)
+				// 				}
+				client.PrintSortedTags(tags)
 			}
 			_, err := c.AddTags(context.Background(), &ksrpc.ObjectRequest{ID: *id, Tags: tags})
 			if err != nil {
@@ -217,9 +222,10 @@ func main() {
 			}
 			if *verbose {
 				fmt.Printf("Deleting tags from %s:\n", *id)
-				for k := range tags {
-					fmt.Printf("\t%s\n", k)
-				}
+				// 				for k := range tags {
+				// 					fmt.Printf("\t%s\n", k)
+				// 				}
+				client.PrintSortedTags(tags)
 			}
 			_, err := c.DelTags(context.Background(), &ksrpc.ObjectRequest{ID: *id, Tags: tags})
 			if err != nil {
@@ -264,9 +270,10 @@ func PrintLookup(c ksrpc.ControllerClient, id string) {
 	}
 	if r.Present {
 		fmt.Printf("Found %s\n", id)
-		for k, v := range r.Tags {
-			fmt.Printf("\t%s: %s\n", k, v)
-		}
+		// 		for k, v := range r.Tags {
+		// 			fmt.Printf("\t%s: %s\n", k, v)
+		// 		}
+		client.PrintSortedTags(r.Tags)
 	} else {
 		fmt.Printf("Not Found %s\n", id)
 	}

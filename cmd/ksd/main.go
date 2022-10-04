@@ -53,13 +53,13 @@ func (s *server) Put(cas ksrpc.Controller_PutServer) error {
 			bs.Write(cc.Data)
 		}
 	}
-	fmt.Printf("TAGS: %#v\n", tags)
+	//fmt.Printf("TAGS: %#v\n", tags)
 	o := kitsync.NewMemObject(bs.Bytes(), tags)
 	err := s.c.Put(o)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("ID: %s\n", o.ID())
+	//fmt.Printf("ID: %s\n", o.ID())
 	return cas.SendAndClose(&ksrpc.AddReply{
 		ID: o.ID(),
 	})
@@ -68,12 +68,14 @@ func (s *server) Put(cas ksrpc.Controller_PutServer) error {
 func (s *server) Search(q *ksrpc.Query, cli ksrpc.Controller_SearchServer) error {
 	i, err := s.c.Index().SearchTag(q.Key, q.Value)
 	if err != nil {
+		log.Printf("Failed to search: %v\n", err)
 		return err
 	}
 	var id string
 	for id, err = i.Next(); err == nil; id, err = i.Next() {
 		err := cli.Send(&ksrpc.ID{ID: id})
 		if err != nil {
+			log.Printf("Failed to search: %v\n", err)
 			return err
 		}
 	}
@@ -120,10 +122,18 @@ func (s *server) DelTags(_ context.Context, r *ksrpc.ObjectRequest) (*ksrpc.Void
 		return nil, fmt.Errorf("ID %s does not exist.", r.ID)
 	}
 	for k, v := range r.Tags {
-		log.Printf("Deleting Tag %s: %s", k, v)
-		err := o.DelTag(k)
-		if err != nil {
-			return nil, err
+		if k == "" {
+			log.Printf("Deleting Keyless Tag :%s", v)
+			err := o.DelTag(":" + v)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			log.Printf("Deleting Tag %s: %s", k, v)
+			err := o.DelTag(k)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	log.Printf("Returning success.")
@@ -196,6 +206,11 @@ func main() {
 		log.Fatalf("Failed to start controller: %v", err)
 	}
 	ct.AddSecondary(st2)
+	// 	st3, err := kitsync.NewFSStorage("/mnt/microsoft/kstest")
+	// 	if err != nil {
+	// 		log.Fatalf("Failed to start controller: %v", err)
+	// 	}
+	// 	ct.AddSecondary(st3)
 
 	s := grpc.NewServer()
 	ksrpc.RegisterControllerServer(s, &server{c: ct})

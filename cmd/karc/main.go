@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -26,6 +25,7 @@ var (
 	discovered = flag.Bool("add-discovered", false, "Automatic yes to adding discovered tags to new files")
 	skiptags   = flag.Bool("skip-tags", false, "Skip asking for additional tags")
 	yes        = flag.Bool("y", false, "Automatic yes to uploading new files")
+	skipver    = flag.Bool("skip-verification", false, "Skip the final printing and prompting about uploading the file, just upload it.")
 )
 
 func errorf(s string, a ...interface{}) {
@@ -113,17 +113,6 @@ func MergeTags(dst, src map[string]string) {
 	}
 }
 
-func printSortedTags(tags map[string]string) {
-	var ks []string
-	for k := range tags {
-		ks = append(ks, k)
-	}
-	sort.Strings(ks)
-	for _, k := range ks {
-		fmt.Printf("\t%s: %s\n", k, tags[k])
-	}
-}
-
 func addFile(c ksrpc.ControllerClient, f string) {
 	id, err := fileHash(f)
 	if err != nil {
@@ -141,7 +130,7 @@ func addFile(c ksrpc.ControllerClient, f string) {
 		// 		for k, v := range r.Tags {
 		// 			fmt.Printf("\t%s: %s\n", k, v)
 		// 		}
-		printSortedTags(r.Tags)
+		client.PrintSortedTags(r.Tags)
 		return
 	}
 
@@ -166,7 +155,7 @@ func addFile(c ksrpc.ControllerClient, f string) {
 		tags = vtags
 	} else {
 		fmt.Printf("########## Discovered tags:\n")
-		printSortedTags(vtags)
+		client.PrintSortedTags(vtags)
 		if promptYN("Add discovered tags?", true) {
 			tags = vtags
 		}
@@ -180,7 +169,7 @@ func addFile(c ksrpc.ControllerClient, f string) {
 	MergeTags(tags, htags)
 	if !*skiptags {
 		fmt.Printf("########## Current tags:\n")
-		printSortedTags(tags)
+		client.PrintSortedTags(tags)
 		atags, err := promptTags("Add additional tags?")
 		if err != nil {
 			errorf("Failed to answer prompt: %s\nSkipping %s\n", err, f)
@@ -193,9 +182,9 @@ func addFile(c ksrpc.ControllerClient, f string) {
 	// 	for k, v := range tags {
 	// 		fmt.Printf("\t%s: %s\n", k, v)
 	// 	}
-	printSortedTags(tags)
+	client.PrintSortedTags(tags)
 
-	if promptYN("Upload?", true) {
+	if *skipver || promptYN("Upload?", true) {
 		rid, err := client.Upload(context.Background(), c, f, tags)
 		if err != nil {
 			errorf("Failed to upload! %s\n", err)

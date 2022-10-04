@@ -19,6 +19,7 @@ const (
 	ev_put
 	ev_add_tag
 	ev_del_tag
+	ev_sync_tag
 )
 
 type event struct {
@@ -31,6 +32,7 @@ type event struct {
 type Controller struct {
 	primary     Storage
 	secondaries []Storage
+	needSync    []Storage
 	journal     *journal.Journal[event]
 
 	period   time.Duration
@@ -52,7 +54,8 @@ func NewController(dir string, primary Storage) (*Controller, error) {
 	}
 	jpath := path.Join(dir, "journal")
 	if _, err := os.Stat(jpath); os.IsNotExist(err) {
-		j, err := journal.NewJournal[event](jpath, 2_000_000, 10*time.Second)
+		fmt.Printf("Creating journal with %d entries.\n", 1_000)
+		j, err := journal.NewJournal[event](jpath, 1_000, 10*time.Second)
 		if err != nil {
 			return nil, err
 		}
@@ -96,6 +99,7 @@ func copyObject(dst, src Storage, secondaries []Storage, id string) error {
 		return err
 	}
 	log.Printf("%s(%s) -> %s\n", src, id, dst)
+	defer log.Printf("Copy Done.\n")
 	for _, d := range secondaries {
 		err = d.Put(o)
 		if err != nil {
@@ -132,6 +136,8 @@ func (c *Controller) Sync() error {
 			log.Printf("Failed to iterate index for %#v: %v, Skipping.", s, err)
 			continue
 		}
+		defer si.Close()
+
 		pid, perr := pi.Next()
 		sid, serr := si.Next()
 		for {
@@ -195,12 +201,19 @@ func (c *Controller) Sync() error {
 			}
 		}
 	}
+
 	log.Printf("Successfully synced storage.\n")
-	c.primary.SetCheckpoint(0)
-	for _, s := range c.secondaries {
-		s.SetCheckpoint(0)
+	i, err := c.journal.Add(event{T: ev_sync_tag})
+	if err != nil {
+		// This should only happen if the journal has been closed. That should never happen, but if it
+		// does, secondaries will get out of sync. That can only be caught by a manual sync.
+		return err
 	}
-	c.journal.Reset()
+	c.primary.SetCheckpoint(i)
+	for _, s := range c.secondaries {
+		s.SetCheckpoint(i)
+	}
+	//c.journal.Reset()
 	return nil
 }
 
@@ -235,7 +248,7 @@ func (c *Controller) syncJournals() bool {
 	defer c.slock.Unlock()
 	deadline := time.Now().Add(5 * time.Second)
 sloop:
-	for _, s := range c.secondaries {
+	for secondaryi, s := range c.secondaries {
 		si := s.Checkpoint()
 		if si < pi {
 			log.Printf("Syncing %s with primary.", s)
@@ -247,9 +260,16 @@ sloop:
 				if time.Now().After(deadline) {
 					return true
 				}
-				fmt.Printf("%s syncing event %d\n", s, i)
+				//fmt.Printf("%s syncing event %d\n", s, i)
 				ev, err := c.journal.Get(i)
 				if err != nil {
+					if err == journal.ErrNotPresent {
+						// This secondary is too old, and is on a journal entry that has been overwritten.
+						// We need to do a full sync.
+						c.needSync = append(c.needSync, s)
+						c.secondaries = append(c.secondaries[:secondaryi], c.secondaries[secondaryi+1:]...)
+						return true
+					}
 					log.Printf("Failed to sync event %#v to secondary %s: %v\n", ev, s, err)
 					continue sloop
 				}
@@ -308,6 +328,73 @@ sloop:
 	return false
 }
 
+// see: syncToSecondaries
+func (c *Controller) syncLoop(toSync []Storage) (done []Storage, fail []Storage) {
+	fmt.Printf("Sync loop %#v\n", toSync)
+	defer fmt.Printf("Sync Loop done.\n")
+
+	checkpoint := c.primary.Checkpoint()
+	pi, err := c.primary.Index().Iter()
+	if err != nil {
+		return nil, toSync
+	}
+
+	pid, perr := pi.Next()
+	for {
+		if !c.isOpen() {
+			log.Printf("Controller shut down. Stopping sync.")
+			return nil, append(toSync, fail...)
+		}
+		if perr != nil && perr != itDone {
+			log.Printf("Failed to iterate primary storage: %s\n", err)
+			return nil, append(toSync, fail...)
+		}
+		if perr == itDone {
+			fmt.Printf("Iterator DONE.\n")
+			break
+		}
+		if len(toSync) == 0 {
+			fmt.Printf("No More Tosync.\n")
+			break
+		}
+
+		k := 0
+		for si, s := range toSync {
+			log.Printf("Syncing %s", pid)
+			err = copyObject(s, c.primary, nil, pid)
+			if err != nil {
+				log.Printf("Failed to sync %v to secondary %#v: %v\n", pid, s, err)
+				fail = append(fail, s)
+			}
+			toSync[k] = toSync[si]
+			k++
+		}
+		toSync = toSync[:k]
+		pid, perr = pi.Next()
+	}
+	for _, s := range toSync {
+		s.SetCheckpoint(checkpoint)
+	}
+	return toSync, fail
+}
+
+// syncToSecondaries performs a one-way sync from the primary storage to out-of-sync secondaries.
+func (c *Controller) syncToSecondaries() {
+	fmt.Printf("sync to secondaries\n")
+	defer fmt.Printf("Done sync to secondaries.\n")
+	c.slock.Lock()
+	syncs := make([]Storage, len(c.needSync))
+	copy(syncs, c.needSync)
+	c.needSync = nil
+	c.slock.Unlock()
+	done, fail := c.syncLoop(syncs)
+
+	c.slock.Lock()
+	c.secondaries = append(c.secondaries, done...)
+	c.needSync = append(c.needSync, fail...)
+	c.slock.Unlock()
+}
+
 func (c *Controller) worker() {
 	log.Printf("Controller worker starting.")
 	defer log.Printf("Controller worker shutting down.")
@@ -315,6 +402,7 @@ func (c *Controller) worker() {
 	defer c.wg.Done()
 	t := time.NewTicker(c.period)
 	defer t.Stop()
+	synct := time.NewTicker(c.period * 2)
 	for {
 		select {
 		case <-c.shutdown:
@@ -325,11 +413,22 @@ func (c *Controller) worker() {
 		case <-c.shutdown:
 			return
 		case <-t.C:
+			fmt.Printf("Tick\n")
 			if c.syncJournals() {
 				t.Reset(1 * time.Second)
 			} else {
 				t.Reset(c.period)
 			}
+			if len(c.needSync) > 0 {
+				fmt.Printf("%d secondaries need sync: %v\n", len(c.needSync), c.needSync)
+			}
+		case <-synct.C:
+			c.slock.RLock()
+			fmt.Printf("Sync Tick\n")
+			if len(c.needSync) > 0 {
+				go c.syncToSecondaries()
+			}
+			c.slock.RUnlock()
 		}
 	}
 }

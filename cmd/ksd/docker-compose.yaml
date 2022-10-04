@@ -1,0 +1,13 @@
+# Use postgres/example user/password credentials
+version: '3.1'
+
+services:
+  db:
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: example
+    volumes:
+      - "/home/kjn/CodeBase/kitsync/cmd/ksd/pgdata:/var/lib/postgresql/data"
+    ports:
+      - 5432:5432

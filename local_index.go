@@ -98,7 +98,7 @@ func (i *fsIndex) Add(o Object) error {
 	}{
 		Tags: tags,
 	}
-	fmt.Printf("Indexing... %#v\n", data)
+	//fmt.Printf("Indexing... %#v\n", data)
 	i.tindex.Index(o.ID(), data)
 	return nil
 }
