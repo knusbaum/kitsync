@@ -55,7 +55,11 @@ func (i *fsIndex) Present(hash string) bool {
 	if !validHash(hash) {
 		return false
 	}
-	_, err := os.Stat(path.Join(i.root, pathForHash(hash)))
+	p, ok := pathForHash(hash)
+	if !ok {
+		return false
+	}
+	_, err := os.Stat(path.Join(i.root, p))
 	if err != nil {
 		return false
 	}

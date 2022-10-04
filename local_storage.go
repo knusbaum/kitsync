@@ -310,11 +310,14 @@ func validHash(hash string) bool {
 	return true
 }
 
-func pathForHash(hash string) string {
+func pathForHash(hash string) (string, bool) {
+	if len(hash) < 12 {
+		return "", false
+	}
 	p1 := hash[:4]
 	p2 := hash[4:8]
 	p3 := hash[8:12]
-	return path.Join(p1, p2, p3, hash)
+	return path.Join(p1, p2, p3, hash), true
 }
 
 type fsStorage struct {
@@ -333,7 +336,11 @@ func (s *fsStorage) Put(o Object) error {
 		// Already present
 		return nil
 	}
-	op := path.Join(s.root, pathForHash(h))
+	p, ok := pathForHash(h)
+	if !ok {
+		return fmt.Errorf("Bad ID: %s", h)
+	}
+	op := path.Join(s.root, p)
 	err := os.MkdirAll(path.Dir(op), 0770)
 	if err != nil {
 		return err
@@ -405,7 +412,11 @@ func (s *fsStorage) Put(o Object) error {
 }
 
 func (s *fsStorage) Delete(id string) error {
-	ofile := path.Join(s.root, pathForHash(id))
+	p, ok := pathForHash(id)
+	if !ok {
+		return fmt.Errorf("Bad ID %s", id)
+	}
+	ofile := path.Join(s.root, p)
 	if err := os.Remove(ofile); err != nil {
 		return err
 	}
@@ -462,7 +473,11 @@ func (s *fsStorage) Cleanup() {
 }
 
 func (s *fsStorage) Present(id string) bool {
-	p := path.Join(s.root, pathForHash(id))
+	p, ok := pathForHash(id)
+	if !ok {
+		return false
+	}
+	p = path.Join(s.root, p)
 	if _, err := os.Stat(p); err != nil {
 		return false
 	}
@@ -470,10 +485,14 @@ func (s *fsStorage) Present(id string) bool {
 }
 
 func (s *fsStorage) Get(id string) (Object, bool) {
+	p, ok := pathForHash(id)
+	if !ok {
+		return nil, false
+	}
 	if s.Present(id) {
 		o := &fsObject{
 			id:   id,
-			path: path.Join(s.root, pathForHash(id)),
+			path: path.Join(s.root, p),
 			s:    s,
 		}
 		return o, true
