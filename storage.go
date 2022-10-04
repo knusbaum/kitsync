@@ -37,23 +37,41 @@ type Object interface {
 	Content() (io.ReadCloser, error)
 }
 
-type IndexIterator interface {
+type Iterator interface {
 	Next() (string, error)
 	Close() error
 }
 
-type Index interface {
-	Iter() (IndexIterator, error)
-	Present(id string) bool
-	SearchTag(k, v string) (IndexIterator, error)
+type IndexedStorage interface {
+	Storage
+	Syncer
+	// Reindex causes the index to be dropped and recreated from scratch
+	Reindex() error
+	IDs() (Iterator, error)
+	Indexed(id string) bool
+	SearchTag(k, v string) (Iterator, error)
+	Keys() (Iterator, error)
+	Tags() (Iterator, error)
 }
 
 type Storage interface {
 	Put(Object) error
-	Get(hash string) (Object, bool)
-	Index() Index
-	Checkpoint() uint64
-	SetCheckpoint(c uint64)
+	Get(id string) (Object, bool)
+	Delete(id string) error
+	Present(id string) bool
+	Iter() (Iterator, error)
 	Close() error
 	fmt.Stringer
+}
+
+type ControllableStorage interface {
+	Storage
+	Checkpoint() uint64
+	SetCheckpoint(c uint64)
+	Cleanup()
+}
+
+type Syncer interface {
+	// Sync may take an extremely long time
+	Sync() error
 }

@@ -9,6 +9,7 @@ import (
 )
 
 type psqlIndex struct {
+	Storage
 	db *sql.DB
 }
 
@@ -38,7 +39,7 @@ var createKeyless = `CREATE TABLE IF NOT EXISTS keyless (
 	ON DELETE CASCADE
 );`
 
-func newPsqlIndex(host string, port int, user, password, dbname string) (*psqlIndex, error) {
+func NewPsqlIndex(s Storage, host string, port int, user, password, dbname string) (*psqlIndex, error) {
 	// 	//psqlconn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", host, port, user, password, dbname)
 	// 	psqlconn := fmt.Sprintf("host=%s port=%d user=%s password=%s sslmode=disable", host, port, user, password)
 	// 	// open database
@@ -77,7 +78,7 @@ func newPsqlIndex(host string, port int, user, password, dbname string) (*psqlIn
 		return nil, err
 	}
 
-	return &psqlIndex{db: db}, nil
+	return &psqlIndex{Storage: s, db: db}, nil
 }
 
 type rowIterator struct {
@@ -100,7 +101,7 @@ func (i *rowIterator) Close() error {
 	return i.rs.Close()
 }
 
-func (i *psqlIndex) Iter() (IndexIterator, error) {
+func (i *psqlIndex) IDs() (Iterator, error) {
 	rs, err := i.db.Query("SELECT hash FROM objects ORDER BY hash;")
 	if err != nil {
 		return nil, err
@@ -108,7 +109,7 @@ func (i *psqlIndex) Iter() (IndexIterator, error) {
 	return &rowIterator{rs: rs}, nil
 }
 
-func (i *psqlIndex) Present(id string) bool {
+func (i *psqlIndex) Indexed(id string) bool {
 	var ohash string
 	if err := i.db.QueryRow("SELECT hash FROM objects WHERE hash = $1;", id).Scan(&ohash); err != nil {
 		if err == sql.ErrNoRows {
@@ -118,17 +119,64 @@ func (i *psqlIndex) Present(id string) bool {
 	return ohash == id
 }
 
-func (i *psqlIndex) objectOID(id string) (int, error) {
-	var oid int
-	// Query for a value based on a single row.
-	if err := i.db.QueryRow("SELECT id FROM objects WHERE hash = $1;", id).Scan(&oid); err != nil {
-		if err == sql.ErrNoRows {
-			_, err := i.db.Exec("INSERT INTO objects (hash) VALUES ($1);", id)
-			if err != nil {
-				return 0, fmt.Errorf("Failed to insert hash into objects: %w", err)
-			}
-			return i.objectOID(id)
+func (i *psqlIndex) Sync() error {
+	fmt.Printf("Syncing Index.\n")
+	defer fmt.Printf("Done syncing index.\n")
+	if sync, ok := i.Storage.(Syncer); ok {
+		fmt.Printf("Index syncing underlying storage.\n")
+		err := sync.Sync()
+		if err != nil {
+			return err
 		}
+		fmt.Printf("Done syncing underlying storage.\n")
+	}
+	it, err := i.Iter()
+	if err != nil {
+		return err
+	}
+	var id string
+	for id, err = it.Next(); err == nil; id, err = it.Next() {
+		if !i.Indexed(id) {
+			o, ok := i.Get(id)
+			if !ok {
+				return fmt.Errorf("Storage claims to have id %s, but Get does not return it.\n", id)
+			}
+			fmt.Printf("Adding %s to index.\n", o.ID())
+			if err := i.Add(o); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (i *psqlIndex) Reindex() error {
+	if _, err := i.db.Exec("DELETE FROM objects;"); err != nil {
+		return err
+	}
+	return i.Sync()
+}
+
+func (i *psqlIndex) Put(o Object) error {
+	err := i.Storage.Put(o)
+	if err != nil {
+		return err
+	}
+	return i.Add(o)
+}
+
+func (i *psqlIndex) objectOID(id string) (int, error) {
+	if _, err := i.db.Exec("DELETE FROM objects WHERE hash = $1;", id); err != nil {
+		return 0, err
+	}
+
+	_, err := i.db.Exec("INSERT INTO objects (hash) VALUES ($1);", id)
+	if err != nil {
+		return 0, fmt.Errorf("Failed to insert hash into objects: %w", err)
+	}
+
+	var oid int
+	if err := i.db.QueryRow("SELECT id FROM objects WHERE hash = $1;", id).Scan(&oid); err != nil {
 		return 0, fmt.Errorf("Failed to select ID from objects by hash: %w", err)
 	}
 	return oid, nil
@@ -164,6 +212,17 @@ func (i *psqlIndex) Add(o Object) error {
 	return nil
 }
 
+func (i *psqlIndex) Delete(id string) error {
+	err := i.Storage.Delete(id)
+	if err != nil {
+		return err
+	}
+	if _, err := i.db.Exec("DELETE FROM objects WHERE hash = $1;", id); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (i *psqlIndex) Close() error {
 	return i.db.Close()
 }
@@ -173,24 +232,70 @@ JOIN tags ON tags.oid = objects.id
 WHERE tags.key = $1 AND tags.value ilike $2
 ORDER BY objects.hash`
 
-var keylessSearchQuery = `SELECT objects.hash FROM objects
-JOIN keyless ON keyless.oid = objects.id
-WHERE keyless.tag ilike $1
+var keylessSearchQuery = `SELECT DISTINCT objects.hash FROM objects
+LEFT JOIN keyless ON keyless.oid = objects.id
+LEFT JOIN tags on tags.oid = objects.id
+WHERE keyless.tag ilike $1 OR tags.value ilike $1
 ORDER BY objects.hash`
 
-func (i *psqlIndex) SearchTag(k, v string) (IndexIterator, error) {
+func (i *psqlIndex) SearchTag(k, v string) (Iterator, error) {
 	if k != "" {
-
 		rs, err := i.db.Query(keyedSearchQuery, k, "%"+v+"%")
 		if err != nil {
 			return nil, err
 		}
 		return &rowIterator{rs: rs}, nil
 	} else {
+		fmt.Printf("KEYLESS SEARCH QUERY\n")
 		rs, err := i.db.Query(keylessSearchQuery, "%"+v+"%")
 		if err != nil {
 			return nil, err
 		}
 		return &rowIterator{rs: rs}, nil
 	}
+}
+
+func (i *psqlIndex) Keys() (Iterator, error) {
+	rs, err := i.db.Query(`SELECT DISTINCT key FROM tags ORDER BY key;`)
+	if err != nil {
+		return nil, err
+	}
+	return &rowIterator{rs: rs}, nil
+}
+
+func (i *psqlIndex) Tags() (Iterator, error) {
+	rs, err := i.db.Query(`SELECT DISTINCT tag FROM keyless ORDER BY tag;`)
+	if err != nil {
+		return nil, err
+	}
+	return &rowIterator{rs: rs}, nil
+}
+
+func (i *psqlIndex) Get(id string) (Object, bool) {
+	o, ok := i.Storage.Get(id)
+	if ok {
+		return &iob{o, i}, ok
+	}
+	return nil, ok
+}
+
+type iob struct {
+	Object
+	i *psqlIndex
+}
+
+func (i *iob) AddTag(k, v string) error {
+	err := i.Object.AddTag(k, v)
+	if err != nil {
+		return err
+	}
+	return i.i.Add(i.Object)
+}
+
+func (i *iob) DelTag(k string) error {
+	err := i.Object.DelTag(k)
+	if err != nil {
+		return err
+	}
+	return i.i.Add(i.Object)
 }

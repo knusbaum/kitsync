@@ -21,12 +21,24 @@ import (
 )
 
 type server struct {
-	c *kitsync.Controller
+	i kitsync.IndexedStorage
 	ksrpc.UnimplementedControllerServer
 }
 
 func (s *server) Sync(context.Context, *ksrpc.Void) (*ksrpc.Void, error) {
-	err := s.c.Sync()
+	sync, ok := s.i.(kitsync.Syncer)
+	if !ok {
+		return nil, fmt.Errorf("Storage does not support syncing.")
+	}
+	err := sync.Sync()
+	if err != nil {
+		return nil, err
+	}
+	return &ksrpc.Void{}, nil
+}
+
+func (s *server) Reindex(context.Context, *ksrpc.Void) (*ksrpc.Void, error) {
+	err := s.i.Reindex()
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +67,7 @@ func (s *server) Put(cas ksrpc.Controller_PutServer) error {
 	}
 	//fmt.Printf("TAGS: %#v\n", tags)
 	o := kitsync.NewMemObject(bs.Bytes(), tags)
-	err := s.c.Put(o)
+	err := s.i.Put(o)
 	if err != nil {
 		return err
 	}
@@ -66,7 +78,7 @@ func (s *server) Put(cas ksrpc.Controller_PutServer) error {
 }
 
 func (s *server) Search(q *ksrpc.Query, cli ksrpc.Controller_SearchServer) error {
-	i, err := s.c.Index().SearchTag(q.Key, q.Value)
+	i, err := s.i.SearchTag(q.Key, q.Value)
 	if err != nil {
 		log.Printf("Failed to search: %v\n", err)
 		return err
@@ -83,8 +95,70 @@ func (s *server) Search(q *ksrpc.Query, cli ksrpc.Controller_SearchServer) error
 	return nil
 }
 
+func (s *server) Iter(_ *ksrpc.Void, cli ksrpc.Controller_IterServer) error {
+	i, err := s.i.Iter()
+	if err != nil {
+		log.Printf("Failed to iterate: %v\n", err)
+		return err
+	}
+	var id string
+	for id, err = i.Next(); err == nil; id, err = i.Next() {
+		err := cli.Send(&ksrpc.ID{ID: id})
+		if err != nil {
+			log.Printf("Failed to iterate: %v\n", err)
+			return err
+		}
+	}
+	fmt.Printf("SEARCH: %v\n", err)
+	return nil
+}
+
+func (s *server) Keys(_ *ksrpc.Void, cli ksrpc.Controller_KeysServer) error {
+	i, err := s.i.Keys()
+	if err != nil {
+		log.Printf("Failed to iterate: %v\n", err)
+		return err
+	}
+	var k string
+	for k, err = i.Next(); err == nil; k, err = i.Next() {
+		err := cli.Send(&ksrpc.Str{S: k})
+		if err != nil {
+			log.Printf("Failed to iterate: %v\n", err)
+			return err
+		}
+	}
+	fmt.Printf("SEARCH: %v\n", err)
+	return nil
+}
+
+func (s *server) Tags(_ *ksrpc.Void, cli ksrpc.Controller_TagsServer) error {
+	i, err := s.i.Tags()
+	if err != nil {
+		log.Printf("Failed to iterate: %v\n", err)
+		return err
+	}
+	var tag string
+	for tag, err = i.Next(); err == nil; tag, err = i.Next() {
+		err := cli.Send(&ksrpc.Str{S: tag})
+		if err != nil {
+			log.Printf("Failed to iterate: %v\n", err)
+			return err
+		}
+	}
+	fmt.Printf("SEARCH: %v\n", err)
+	return nil
+}
+
+func (s *server) Delete(_ context.Context, id *ksrpc.ID) (*ksrpc.Void, error) {
+	err := s.i.Delete(id.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &ksrpc.Void{}, nil
+}
+
 func (s *server) Lookup(_ context.Context, id *ksrpc.ID) (*ksrpc.LookupResult, error) {
-	o, ok := s.c.Get(id.ID)
+	o, ok := s.i.Get(id.ID)
 	if !ok {
 		return &ksrpc.LookupResult{}, nil
 	}
@@ -100,7 +174,7 @@ func (s *server) Lookup(_ context.Context, id *ksrpc.ID) (*ksrpc.LookupResult, e
 
 func (s *server) AddTags(_ context.Context, r *ksrpc.ObjectRequest) (*ksrpc.Void, error) {
 	log.Printf("Getting %s", r.ID)
-	o, ok := s.c.Get(r.ID)
+	o, ok := s.i.Get(r.ID)
 	if !ok {
 		return nil, fmt.Errorf("ID %s does not exist.", r.ID)
 	}
@@ -117,7 +191,7 @@ func (s *server) AddTags(_ context.Context, r *ksrpc.ObjectRequest) (*ksrpc.Void
 
 func (s *server) DelTags(_ context.Context, r *ksrpc.ObjectRequest) (*ksrpc.Void, error) {
 	log.Printf("Getting %s", r.ID)
-	o, ok := s.c.Get(r.ID)
+	o, ok := s.i.Get(r.ID)
 	if !ok {
 		return nil, fmt.Errorf("ID %s does not exist.", r.ID)
 	}
@@ -142,7 +216,7 @@ func (s *server) DelTags(_ context.Context, r *ksrpc.ObjectRequest) (*ksrpc.Void
 
 func (s *server) Content(r *ksrpc.ObjectRequest, cli ksrpc.Controller_ContentServer) error {
 	log.Printf("Getting %s", r.ID)
-	o, ok := s.c.Get(r.ID)
+	o, ok := s.i.Get(r.ID)
 	if !ok {
 		return fmt.Errorf("ID %s does not exist.", r.ID)
 	}
@@ -213,7 +287,11 @@ func main() {
 	// 	ct.AddSecondary(st3)
 
 	s := grpc.NewServer()
-	ksrpc.RegisterControllerServer(s, &server{c: ct})
+	index, err := kitsync.NewPsqlIndex(ct, "127.0.0.1", 5432, "postgres", "example", "testksdindex")
+	if err != nil {
+		log.Fatalf("Failed to start index: %v", err)
+	}
+	ksrpc.RegisterControllerServer(s, &server{i: index})
 	log.Printf("server listening at %v", lis.Addr())
 	go func() {
 		if err := s.Serve(lis); err != nil {

@@ -5,13 +5,17 @@ package ksrpc;
 
 // The greeting service definition.
 service Controller {
-  // Sends a greeting
   rpc Sync (Void) returns (Void) {}
+  rpc Reindex (Void) returns (Void) {}
   rpc Put(stream ContentChunk) returns (AddReply) {}
+  rpc Delete(ID) returns (Void) {}
   rpc Lookup(ID) returns (LookupResult) {}
+  rpc Iter(Void) returns (stream ID) {}
 
   // Index functions
   rpc Search(Query) returns (stream ID) {}
+  rpc Keys(Void) returns (stream Str) {}
+  rpc Tags(Void) returns (stream Str) {}
 
   // Object functions
   rpc AddTags(ObjectRequest) returns (Void) {}
@@ -50,3 +54,6 @@ message ObjectRequest {
 	map<string, string> Tags = 2;
 }
 
+message Str {
+	string S = 1;
+}

@@ -22,12 +22,16 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ControllerClient interface {
-	// Sends a greeting
 	Sync(ctx context.Context, in *Void, opts ...grpc.CallOption) (*Void, error)
+	Reindex(ctx context.Context, in *Void, opts ...grpc.CallOption) (*Void, error)
 	Put(ctx context.Context, opts ...grpc.CallOption) (Controller_PutClient, error)
+	Delete(ctx context.Context, in *ID, opts ...grpc.CallOption) (*Void, error)
 	Lookup(ctx context.Context, in *ID, opts ...grpc.CallOption) (*LookupResult, error)
+	Iter(ctx context.Context, in *Void, opts ...grpc.CallOption) (Controller_IterClient, error)
 	// Index functions
 	Search(ctx context.Context, in *Query, opts ...grpc.CallOption) (Controller_SearchClient, error)
+	Keys(ctx context.Context, in *Void, opts ...grpc.CallOption) (Controller_KeysClient, error)
+	Tags(ctx context.Context, in *Void, opts ...grpc.CallOption) (Controller_TagsClient, error)
 	// Object functions
 	AddTags(ctx context.Context, in *ObjectRequest, opts ...grpc.CallOption) (*Void, error)
 	DelTags(ctx context.Context, in *ObjectRequest, opts ...grpc.CallOption) (*Void, error)
@@ -45,6 +49,15 @@ func NewControllerClient(cc grpc.ClientConnInterface) ControllerClient {
 func (c *controllerClient) Sync(ctx context.Context, in *Void, opts ...grpc.CallOption) (*Void, error) {
 	out := new(Void)
 	err := c.cc.Invoke(ctx, "/ksrpc.Controller/Sync", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *controllerClient) Reindex(ctx context.Context, in *Void, opts ...grpc.CallOption) (*Void, error) {
+	out := new(Void)
+	err := c.cc.Invoke(ctx, "/ksrpc.Controller/Reindex", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -85,6 +98,15 @@ func (x *controllerPutClient) CloseAndRecv() (*AddReply, error) {
 	return m, nil
 }
 
+func (c *controllerClient) Delete(ctx context.Context, in *ID, opts ...grpc.CallOption) (*Void, error) {
+	out := new(Void)
+	err := c.cc.Invoke(ctx, "/ksrpc.Controller/Delete", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *controllerClient) Lookup(ctx context.Context, in *ID, opts ...grpc.CallOption) (*LookupResult, error) {
 	out := new(LookupResult)
 	err := c.cc.Invoke(ctx, "/ksrpc.Controller/Lookup", in, out, opts...)
@@ -94,8 +116,40 @@ func (c *controllerClient) Lookup(ctx context.Context, in *ID, opts ...grpc.Call
 	return out, nil
 }
 
+func (c *controllerClient) Iter(ctx context.Context, in *Void, opts ...grpc.CallOption) (Controller_IterClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Controller_ServiceDesc.Streams[1], "/ksrpc.Controller/Iter", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &controllerIterClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type Controller_IterClient interface {
+	Recv() (*ID, error)
+	grpc.ClientStream
+}
+
+type controllerIterClient struct {
+	grpc.ClientStream
+}
+
+func (x *controllerIterClient) Recv() (*ID, error) {
+	m := new(ID)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 func (c *controllerClient) Search(ctx context.Context, in *Query, opts ...grpc.CallOption) (Controller_SearchClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Controller_ServiceDesc.Streams[1], "/ksrpc.Controller/Search", opts...)
+	stream, err := c.cc.NewStream(ctx, &Controller_ServiceDesc.Streams[2], "/ksrpc.Controller/Search", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -126,6 +180,70 @@ func (x *controllerSearchClient) Recv() (*ID, error) {
 	return m, nil
 }
 
+func (c *controllerClient) Keys(ctx context.Context, in *Void, opts ...grpc.CallOption) (Controller_KeysClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Controller_ServiceDesc.Streams[3], "/ksrpc.Controller/Keys", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &controllerKeysClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type Controller_KeysClient interface {
+	Recv() (*Str, error)
+	grpc.ClientStream
+}
+
+type controllerKeysClient struct {
+	grpc.ClientStream
+}
+
+func (x *controllerKeysClient) Recv() (*Str, error) {
+	m := new(Str)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *controllerClient) Tags(ctx context.Context, in *Void, opts ...grpc.CallOption) (Controller_TagsClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Controller_ServiceDesc.Streams[4], "/ksrpc.Controller/Tags", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &controllerTagsClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type Controller_TagsClient interface {
+	Recv() (*Str, error)
+	grpc.ClientStream
+}
+
+type controllerTagsClient struct {
+	grpc.ClientStream
+}
+
+func (x *controllerTagsClient) Recv() (*Str, error) {
+	m := new(Str)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 func (c *controllerClient) AddTags(ctx context.Context, in *ObjectRequest, opts ...grpc.CallOption) (*Void, error) {
 	out := new(Void)
 	err := c.cc.Invoke(ctx, "/ksrpc.Controller/AddTags", in, out, opts...)
@@ -145,7 +263,7 @@ func (c *controllerClient) DelTags(ctx context.Context, in *ObjectRequest, opts 
 }
 
 func (c *controllerClient) Content(ctx context.Context, in *ObjectRequest, opts ...grpc.CallOption) (Controller_ContentClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Controller_ServiceDesc.Streams[2], "/ksrpc.Controller/Content", opts...)
+	stream, err := c.cc.NewStream(ctx, &Controller_ServiceDesc.Streams[5], "/ksrpc.Controller/Content", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -180,12 +298,16 @@ func (x *controllerContentClient) Recv() (*ContentChunk, error) {
 // All implementations must embed UnimplementedControllerServer
 // for forward compatibility
 type ControllerServer interface {
-	// Sends a greeting
 	Sync(context.Context, *Void) (*Void, error)
+	Reindex(context.Context, *Void) (*Void, error)
 	Put(Controller_PutServer) error
+	Delete(context.Context, *ID) (*Void, error)
 	Lookup(context.Context, *ID) (*LookupResult, error)
+	Iter(*Void, Controller_IterServer) error
 	// Index functions
 	Search(*Query, Controller_SearchServer) error
+	Keys(*Void, Controller_KeysServer) error
+	Tags(*Void, Controller_TagsServer) error
 	// Object functions
 	AddTags(context.Context, *ObjectRequest) (*Void, error)
 	DelTags(context.Context, *ObjectRequest) (*Void, error)
@@ -200,14 +322,29 @@ type UnimplementedControllerServer struct {
 func (UnimplementedControllerServer) Sync(context.Context, *Void) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Sync not implemented")
 }
+func (UnimplementedControllerServer) Reindex(context.Context, *Void) (*Void, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Reindex not implemented")
+}
 func (UnimplementedControllerServer) Put(Controller_PutServer) error {
 	return status.Errorf(codes.Unimplemented, "method Put not implemented")
+}
+func (UnimplementedControllerServer) Delete(context.Context, *ID) (*Void, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Delete not implemented")
 }
 func (UnimplementedControllerServer) Lookup(context.Context, *ID) (*LookupResult, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Lookup not implemented")
 }
+func (UnimplementedControllerServer) Iter(*Void, Controller_IterServer) error {
+	return status.Errorf(codes.Unimplemented, "method Iter not implemented")
+}
 func (UnimplementedControllerServer) Search(*Query, Controller_SearchServer) error {
 	return status.Errorf(codes.Unimplemented, "method Search not implemented")
+}
+func (UnimplementedControllerServer) Keys(*Void, Controller_KeysServer) error {
+	return status.Errorf(codes.Unimplemented, "method Keys not implemented")
+}
+func (UnimplementedControllerServer) Tags(*Void, Controller_TagsServer) error {
+	return status.Errorf(codes.Unimplemented, "method Tags not implemented")
 }
 func (UnimplementedControllerServer) AddTags(context.Context, *ObjectRequest) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddTags not implemented")
@@ -249,6 +386,24 @@ func _Controller_Sync_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Controller_Reindex_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Void)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControllerServer).Reindex(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/ksrpc.Controller/Reindex",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControllerServer).Reindex(ctx, req.(*Void))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Controller_Put_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(ControllerServer).Put(&controllerPutServer{stream})
 }
@@ -275,6 +430,24 @@ func (x *controllerPutServer) Recv() (*ContentChunk, error) {
 	return m, nil
 }
 
+func _Controller_Delete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ID)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControllerServer).Delete(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/ksrpc.Controller/Delete",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControllerServer).Delete(ctx, req.(*ID))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Controller_Lookup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ID)
 	if err := dec(in); err != nil {
@@ -291,6 +464,27 @@ func _Controller_Lookup_Handler(srv interface{}, ctx context.Context, dec func(i
 		return srv.(ControllerServer).Lookup(ctx, req.(*ID))
 	}
 	return interceptor(ctx, in, info, handler)
+}
+
+func _Controller_Iter_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(Void)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ControllerServer).Iter(m, &controllerIterServer{stream})
+}
+
+type Controller_IterServer interface {
+	Send(*ID) error
+	grpc.ServerStream
+}
+
+type controllerIterServer struct {
+	grpc.ServerStream
+}
+
+func (x *controllerIterServer) Send(m *ID) error {
+	return x.ServerStream.SendMsg(m)
 }
 
 func _Controller_Search_Handler(srv interface{}, stream grpc.ServerStream) error {
@@ -311,6 +505,48 @@ type controllerSearchServer struct {
 }
 
 func (x *controllerSearchServer) Send(m *ID) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func _Controller_Keys_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(Void)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ControllerServer).Keys(m, &controllerKeysServer{stream})
+}
+
+type Controller_KeysServer interface {
+	Send(*Str) error
+	grpc.ServerStream
+}
+
+type controllerKeysServer struct {
+	grpc.ServerStream
+}
+
+func (x *controllerKeysServer) Send(m *Str) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func _Controller_Tags_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(Void)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ControllerServer).Tags(m, &controllerTagsServer{stream})
+}
+
+type Controller_TagsServer interface {
+	Send(*Str) error
+	grpc.ServerStream
+}
+
+type controllerTagsServer struct {
+	grpc.ServerStream
+}
+
+func (x *controllerTagsServer) Send(m *Str) error {
 	return x.ServerStream.SendMsg(m)
 }
 
@@ -383,6 +619,14 @@ var Controller_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Controller_Sync_Handler,
 		},
 		{
+			MethodName: "Reindex",
+			Handler:    _Controller_Reindex_Handler,
+		},
+		{
+			MethodName: "Delete",
+			Handler:    _Controller_Delete_Handler,
+		},
+		{
 			MethodName: "Lookup",
 			Handler:    _Controller_Lookup_Handler,
 		},
@@ -402,8 +646,23 @@ var Controller_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 		{
+			StreamName:    "Iter",
+			Handler:       _Controller_Iter_Handler,
+			ServerStreams: true,
+		},
+		{
 			StreamName:    "Search",
 			Handler:       _Controller_Search_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "Keys",
+			Handler:       _Controller_Keys_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "Tags",
+			Handler:       _Controller_Tags_Handler,
 			ServerStreams: true,
 		},
 		{

@@ -17,6 +17,7 @@ type evtype int
 const (
 	ev_NONE evtype = iota
 	ev_put
+	ev_delete
 	ev_add_tag
 	ev_del_tag
 	ev_sync_tag
@@ -30,9 +31,9 @@ type event struct {
 }
 
 type Controller struct {
-	primary     Storage
-	secondaries []Storage
-	needSync    []Storage
+	primary     ControllableStorage
+	secondaries []ControllableStorage
+	needSync    []ControllableStorage
 	journal     *journal.Journal[event]
 
 	period   time.Duration
@@ -44,9 +45,11 @@ type Controller struct {
 	wg    sync.WaitGroup
 }
 
+var _ Storage = &Controller{}
+
 // NewController creates a new controller for the primary Storage. Local data such as the journal
 // is stored in the directory at dir.
-func NewController(dir string, primary Storage) (*Controller, error) {
+func NewController(dir string, primary ControllableStorage) (*Controller, error) {
 	c := &Controller{
 		primary:  primary,
 		period:   10 * time.Second,
@@ -54,8 +57,8 @@ func NewController(dir string, primary Storage) (*Controller, error) {
 	}
 	jpath := path.Join(dir, "journal")
 	if _, err := os.Stat(jpath); os.IsNotExist(err) {
-		fmt.Printf("Creating journal with %d entries.\n", 1_000)
-		j, err := journal.NewJournal[event](jpath, 1_000, 10*time.Second)
+		fmt.Printf("Creating journal with %d entries.\n", 2_000_000)
+		j, err := journal.NewJournal[event](jpath, 2_000_000, 10*time.Second)
 		if err != nil {
 			return nil, err
 		}
@@ -80,14 +83,14 @@ func NewController(dir string, primary Storage) (*Controller, error) {
 	return c, nil
 }
 
-func (c *Controller) AddSecondary(s Storage) {
+func (c *Controller) AddSecondary(s ControllableStorage) {
 	c.slock.Lock()
 	defer c.slock.Unlock()
 	c.secondaries = append(c.secondaries, s)
 	log.Printf("Added secondary %s at checkpoint %d\n", s, s.Checkpoint())
 }
 
-func copyObject(dst, src Storage, secondaries []Storage, id string) error {
+func copyObject(dst, src ControllableStorage, secondaries []ControllableStorage, id string) error {
 	o, ok := src.Get(id)
 	if !ok {
 		return fmt.Errorf("Failed to retrieve %v from %#v\n", id, src)
@@ -125,13 +128,13 @@ func (c *Controller) Sync() error {
 	c.slock.Lock()
 	defer c.slock.Unlock()
 
-	var done []Storage
+	var done []ControllableStorage
 	for _, s := range c.secondaries {
-		pi, err := c.primary.Index().Iter()
+		pi, err := c.primary.Iter()
 		if err != nil {
 			return err
 		}
-		si, err := s.Index().Iter()
+		si, err := s.Iter()
 		if err != nil {
 			log.Printf("Failed to iterate index for %#v: %v, Skipping.", s, err)
 			continue
@@ -157,7 +160,7 @@ func (c *Controller) Sync() error {
 				done = append(done, s)
 				break
 			} else if perr == itDone {
-				log.Printf("Syncing %s", sid)
+				log.Printf("Syncing %s to primary", sid)
 				err = copyObject(c.primary, s, done, sid)
 				if err != nil {
 					return err
@@ -165,7 +168,7 @@ func (c *Controller) Sync() error {
 				sid, serr = si.Next()
 				continue
 			} else if serr == itDone {
-				log.Printf("Syncing %s", pid)
+				log.Printf("Syncing %s to secondary", pid)
 				err = copyObject(s, c.primary, nil, pid)
 				if err != nil {
 					log.Printf("Failed to sync %v to secondary %#v: %v\n", pid, s, err)
@@ -178,12 +181,12 @@ func (c *Controller) Sync() error {
 			if i == 0 {
 				// The IDs are present in both.
 				// TODO(kjn): sync the hashes/tags
-				log.Printf("Syncing %s", pid)
+				//log.Printf("Syncing %s", pid)
 				pid, perr = pi.Next()
 				sid, serr = si.Next()
 				continue
 			} else if i > 0 {
-				log.Printf("Syncing %s", sid)
+				log.Printf("Syncing %s to primary", sid)
 				err = copyObject(c.primary, s, done, sid)
 				if err != nil {
 					return err
@@ -191,10 +194,10 @@ func (c *Controller) Sync() error {
 				sid, serr = si.Next()
 				continue
 			} else if i < 0 {
-				log.Printf("Syncing %s", pid)
+				log.Printf("Syncing %s to secondary", pid)
 				err = copyObject(s, c.primary, nil, pid)
 				if err != nil {
-					log.Printf("Failde to sync %v to secondary %#v: %v\n", pid, s, err)
+					log.Printf("Failed to sync %v to secondary %#v: %v\n", pid, s, err)
 				}
 				pid, perr = pi.Next()
 				continue
@@ -203,17 +206,16 @@ func (c *Controller) Sync() error {
 	}
 
 	log.Printf("Successfully synced storage.\n")
-	i, err := c.journal.Add(event{T: ev_sync_tag})
-	if err != nil {
-		// This should only happen if the journal has been closed. That should never happen, but if it
-		// does, secondaries will get out of sync. That can only be caught by a manual sync.
-		return err
-	}
-	c.primary.SetCheckpoint(i)
+	// 	//i, err := c.journal.Add(event{T: ev_sync_tag})
+	// 	if err != nil {
+	// 		// This should only happen if the journal has been closed. That should never happen, but if it
+	// 		// does, secondaries will get out of sync. That can only be caught by a manual sync.
+	// 		return err
+	// 	}
+	i := c.primary.Checkpoint()
 	for _, s := range c.secondaries {
 		s.SetCheckpoint(i)
 	}
-	//c.journal.Reset()
 	return nil
 }
 
@@ -286,6 +288,14 @@ sloop:
 					}
 					s.SetCheckpoint(i)
 					continue
+				} else if ev.T == ev_delete {
+					err := s.Delete(ev.ID)
+					if err != nil {
+						log.Printf("Failed to sync event %#v to secondary %s: %v\n", ev, s, err)
+						continue sloop
+					}
+					s.SetCheckpoint(i)
+					continue
 				} else if ev.T == ev_add_tag {
 					o, ok := s.Get(ev.ID)
 					if !ok {
@@ -329,12 +339,12 @@ sloop:
 }
 
 // see: syncToSecondaries
-func (c *Controller) syncLoop(toSync []Storage) (done []Storage, fail []Storage) {
+func (c *Controller) syncLoop(toSync []ControllableStorage) (done []ControllableStorage, fail []ControllableStorage) {
 	fmt.Printf("Sync loop %#v\n", toSync)
 	defer fmt.Printf("Sync Loop done.\n")
 
 	checkpoint := c.primary.Checkpoint()
-	pi, err := c.primary.Index().Iter()
+	pi, err := c.primary.Iter()
 	if err != nil {
 		return nil, toSync
 	}
@@ -360,7 +370,7 @@ func (c *Controller) syncLoop(toSync []Storage) (done []Storage, fail []Storage)
 
 		k := 0
 		for si, s := range toSync {
-			log.Printf("Syncing %s", pid)
+			log.Printf("Syncing %s to secondary", pid)
 			err = copyObject(s, c.primary, nil, pid)
 			if err != nil {
 				log.Printf("Failed to sync %v to secondary %#v: %v\n", pid, s, err)
@@ -383,7 +393,7 @@ func (c *Controller) syncToSecondaries() {
 	fmt.Printf("sync to secondaries\n")
 	defer fmt.Printf("Done sync to secondaries.\n")
 	c.slock.Lock()
-	syncs := make([]Storage, len(c.needSync))
+	syncs := make([]ControllableStorage, len(c.needSync))
 	copy(syncs, c.needSync)
 	c.needSync = nil
 	c.slock.Unlock()
@@ -413,7 +423,7 @@ func (c *Controller) worker() {
 		case <-c.shutdown:
 			return
 		case <-t.C:
-			fmt.Printf("Tick\n")
+			// fmt.Printf("Tick\n")
 			if c.syncJournals() {
 				t.Reset(1 * time.Second)
 			} else {
@@ -424,11 +434,20 @@ func (c *Controller) worker() {
 			}
 		case <-synct.C:
 			c.slock.RLock()
-			fmt.Printf("Sync Tick\n")
+			// fmt.Printf("Sync Tick\n")
 			if len(c.needSync) > 0 {
 				go c.syncToSecondaries()
 			}
 			c.slock.RUnlock()
+			c.plock.Lock()
+			c.slock.Lock()
+			c.primary.Cleanup()
+			//fmt.Printf("Cleaning up.\n")
+			for _, s := range c.secondaries {
+				s.Cleanup()
+			}
+			c.slock.Unlock()
+			c.plock.Unlock()
 		}
 	}
 }
@@ -462,16 +481,46 @@ func (c *Controller) Close() error {
 	return nil
 }
 
-func (c *Controller) Index() Index {
-	return c.primary.Index()
+func (c *Controller) Iter() (Iterator, error) {
+	return c.primary.Iter()
 }
 
-func (c *Controller) Get(hash string) (Object, bool) {
-	o, ok := c.primary.Get(hash)
+func (c *Controller) Get(id string) (Object, bool) {
+	o, ok := c.primary.Get(id)
 	if !ok {
 		return nil, false
 	}
 	return &cob{o, c}, true
+}
+
+func (c *Controller) Delete(id string) error {
+	err := c.primary.Delete(id)
+	if err != nil {
+		return err
+	}
+	i, err := c.journal.Add(event{T: ev_delete, ID: id})
+	if err != nil {
+		// This should only happen if the journal has been closed. That should never happen, but if it
+		// does, secondaries will get out of sync. That can only be caught by a manual sync.
+		return err
+	}
+	c.primary.SetCheckpoint(i)
+	return nil
+}
+
+func (c *Controller) Present(id string) bool {
+	return c.Present(id)
+}
+
+func (c *Controller) String() string {
+	var str strings.Builder
+	fmt.Fprintf(&str, "Controller(")
+	fmt.Fprintf(&str, "%s", c.primary)
+	for _, s := range c.secondaries {
+		fmt.Fprintf(&str, ", %s", s)
+	}
+	fmt.Fprintf(&str, ")")
+	return str.String()
 }
 
 type cob struct {

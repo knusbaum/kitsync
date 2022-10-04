@@ -26,18 +26,6 @@ type fsObject struct {
 }
 
 func (o *fsObject) ID() string {
-	// 	if o.id == "" {
-	// 		f, err := os.Open(o.path)
-	// 		if err != nil {
-	// 			return "", err
-	// 		}
-	// 		defer f.Close()
-	//
-	// 		h := sha256.New()
-	// 		io.Copy(h, f)
-	// 		s := h.Sum(nil)
-	// 		o.id = hex.EncodeToString(s)
-	// 	}
 	return o.id
 }
 
@@ -249,11 +237,11 @@ func (o *fsObject) AddTag(k, v string) error {
 		return err
 	}
 
-	// Update the index
-	err = o.s.idx.Add(o)
-	if err != nil {
-		log.Printf("(AddTag) Failed to index tags for %s: %v", o.id, err)
-	}
+	// 	// Update the index
+	// 	err = o.s.idx.Add(o)
+	// 	if err != nil {
+	// 		log.Printf("(AddTag) Failed to index tags for %s: %v", o.id, err)
+	// 	}
 
 	return nil
 }
@@ -295,11 +283,11 @@ func (o *fsObject) DelTag(k string) error {
 		return err
 	}
 
-	// Update the index
-	err = o.s.idx.Add(o)
-	if err != nil {
-		log.Printf("(DelTag) Failed to index tags for %s: %v", o.id, err)
-	}
+	// 	// Update the index
+	// 	err = o.s.idx.Add(o)
+	// 	if err != nil {
+	// 		log.Printf("(DelTag) Failed to index tags for %s: %v", o.id, err)
+	// 	}
 
 	return nil
 }
@@ -332,7 +320,7 @@ func pathForHash(hash string) string {
 type fsStorage struct {
 	root string
 	//idx  *fsIndex
-	idx *psqlIndex
+	//idx *psqlIndex
 }
 
 func (s *fsStorage) String() string {
@@ -341,7 +329,7 @@ func (s *fsStorage) String() string {
 
 func (s *fsStorage) Put(o Object) error {
 	h := o.ID()
-	if s.Index().Present(h) {
+	if s.Present(h) {
 		// Already present
 		return nil
 	}
@@ -370,11 +358,11 @@ func (s *fsStorage) Put(o Object) error {
 		return err
 	}
 
-	// Update the index
-	err = s.idx.Add(o)
-	if err != nil {
-		log.Printf("(Put) Failed to index tags for %s: %v", h, err)
-	}
+	// 	// Update the index
+	// 	err = s.idx.Add(o)
+	// 	if err != nil {
+	// 		log.Printf("(Put) Failed to index tags for %s: %v", h, err)
+	// 	}
 
 	// Write updated file
 	f, err = os.Create(op + ".updated")
@@ -416,11 +404,76 @@ func (s *fsStorage) Put(o Object) error {
 	return nil
 }
 
-func (s *fsStorage) Get(hash string) (Object, bool) {
-	if s.Index().Present(hash) {
+func (s *fsStorage) Delete(id string) error {
+	ofile := path.Join(s.root, pathForHash(id))
+	if err := os.Remove(ofile); err != nil {
+		return err
+	}
+	os.Remove(ofile + ".tags")
+	os.Remove(ofile + ".updated")
+	os.Remove(ofile + ".hash")
+	return nil
+}
+
+func readD(d string, n int) ([]os.DirEntry, error) {
+	f, err := os.Open(d)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	es, err := f.ReadDir(n)
+	if err != nil {
+		return nil, err
+	}
+	return es, nil
+}
+
+func (s *fsStorage) cleanup(d string) {
+	es, err := readD(d, 0)
+	if err != nil {
+		if err == io.EOF {
+			// dir is empty.
+			fmt.Printf("Removing %s\n", d)
+			os.Remove(d)
+		}
+		return
+	}
+
+	for _, e := range es {
+		if e.IsDir() {
+			s.cleanup(path.Join(d, e.Name()))
+		}
+	}
+
+	es, err = readD(d, 1)
+	if err != nil {
+		if err == io.EOF {
+			// dir is empty.
+			fmt.Printf("Removing %s\n", d)
+			os.Remove(d)
+		}
+		return
+	}
+}
+
+func (s *fsStorage) Cleanup() {
+	s.cleanup(s.root)
+}
+
+func (s *fsStorage) Present(id string) bool {
+	p := path.Join(s.root, pathForHash(id))
+	if _, err := os.Stat(p); err != nil {
+		return false
+	}
+	return true
+}
+
+func (s *fsStorage) Get(id string) (Object, bool) {
+	if s.Present(id) {
 		o := &fsObject{
-			id:   hash,
-			path: path.Join(s.root, pathForHash(hash)),
+			id:   id,
+			path: path.Join(s.root, pathForHash(id)),
 			s:    s,
 		}
 		return o, true
@@ -428,8 +481,8 @@ func (s *fsStorage) Get(hash string) (Object, bool) {
 	return nil, false
 }
 
-func (s *fsStorage) Index() Index {
-	return s.idx
+func (s *fsStorage) Iter() (Iterator, error) {
+	return newFSIndexIterator(s.root)
 }
 
 func (s *fsStorage) Checkpoint() uint64 {
@@ -461,21 +514,22 @@ func (s *fsStorage) SetCheckpoint(i uint64) {
 }
 
 func (s *fsStorage) Close() error {
-	return s.idx.Close()
+	//return s.idx.Close()
+	return nil
 }
 
-func NewFSStorage(path string) (Storage, error) {
+func NewFSStorage(root string) (*fsStorage, error) {
 	// 	idx, err := openFSIndex(path)
 	// 	if err != nil {
 	// 		return nil, err
 	// 	}
-	idx, err := newPsqlIndex("127.0.0.1", 5432, "postgres", "example", strings.Replace(path, "/", "_", -1))
-	if err != nil {
-		return nil, err
-	}
+	// 	idx, err := newPsqlIndex("127.0.0.1", 5432, "postgres", "example", strings.Replace(path, "/", "_", -1))
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
 
 	return &fsStorage{
-		root: path,
-		idx:  idx,
+		root: path.Clean(root),
+		//idx:  idx,
 	}, nil
 }

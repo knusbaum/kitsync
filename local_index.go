@@ -47,7 +47,7 @@ func (i *fsIndex) Close() error {
 	return i.tindex.Close()
 }
 
-func (i *fsIndex) Iter() (IndexIterator, error) {
+func (i *fsIndex) Iter() (Iterator, error) {
 	return newFSIndexIterator(i.root)
 }
 
@@ -62,7 +62,7 @@ func (i *fsIndex) Present(hash string) bool {
 	return true
 }
 
-func (i *fsIndex) SearchTag(k, v string) (IndexIterator, error) {
+func (i *fsIndex) SearchTag(k, v string) (Iterator, error) {
 	var q query.Query
 	if v == "" {
 		query := bleve.NewPrefixQuery("")

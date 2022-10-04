@@ -182,12 +182,6 @@ func (j *Journal[T]) Close() error {
 	log.Printf("Shutting down Journal.")
 	j.wg.Wait()
 	return j.Flush()
-	// l.Lock()
-	// 	defer l.Unlock()
-	// 	err := j.lockedFlush()
-	// 	if err != nil {
-	// 		return err
-	// 	}
 }
 
 func (j *Journal[T]) worker() {

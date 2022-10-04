@@ -19,19 +19,25 @@ import (
 )
 
 var (
-	addr   = flag.String("addr", "localhost:50051", "the address to connect to")
-	file   = flag.String("file", "", "adds a file to ksd. Optionally specify -tags to add")
-	s      = flag.Bool("sync", false, "causes ksd to manually sync all storages")
-	search = flag.String("search", "", "colon-separated key/value pair to search for.")
-	id     = flag.String("id", "", "Without other args, gets the tags for an ID.")
-	tags   = flag.String("tags", "", "Comma-separated sets of colon-separated key/value pairs.")
-	set    = flag.Bool("set", false, "Causes -tags to be added to -id")
-	del    = flag.Bool("del", false, "Causes -tags to be deleted from -id")
+	addr    = flag.String("addr", "localhost:50051", "the address to connect to")
+	file    = flag.String("file", "", "adds a file to ksd. Optionally specify -tags to add")
+	sync    = flag.Bool("sync", false, "causes ksd to manually sync all storages. Warning: this may be expensive.")
+	reindex = flag.Bool("reindex", false, "causes ksd to drop and recreate the index from scratch. Warning: this may be expensive.")
+	search  = flag.String("search", "", "colon-separated key/value pair to search for.")
+	all     = flag.Bool("all", false, "list all IDs present in the storage.")
+	id      = flag.String("id", "", "Without other args, gets the tags for an ID.")
+	tags    = flag.String("tags", "", "Comma-separated sets of colon-separated key/value pairs.")
+	set     = flag.Bool("set", false, "Causes -tags to be added to -id")
+	rem     = flag.Bool("rem", false, "Causes -tags to be removed from -id")
+	del     = flag.Bool("del", false, "Causes -id to be deleted")
 	//setkey  = flag.String("setkey", "", "colon-separated key/value pair to set on -id.")
 	//delkey  = flag.String("delkey", "", "key to delete on -id.")
 	cat     = flag.Bool("cat", false, "causes ksd to write the file specified by -id to stdout")
 	verbose = flag.Bool("v", false, "controls the verbosity of the various commands")
 	profile = flag.Bool("profile", false, "Write out a profile for the program - useful only for debugging.")
+
+	listkeys = flag.Bool("list-keys", false, "List all the keys present in the index.")
+	listTags = flag.Bool("list-tags", false, "List all the tags present in the index.")
 )
 
 func parseTags(s string) map[string]string {
@@ -76,8 +82,13 @@ func main() {
 	defer conn.Close()
 	c := ksrpc.NewControllerClient(conn)
 
-	if *s {
+	if *sync {
 		_, err = c.Sync(context.Background(), &ksrpc.Void{})
+		if err != nil {
+			log.Fatalf("failed to sync: %v", err)
+		}
+	} else if *reindex {
+		_, err = c.Reindex(context.Background(), &ksrpc.Void{})
 		if err != nil {
 			log.Fatalf("failed to sync: %v", err)
 		}
@@ -160,6 +171,62 @@ func main() {
 		// 		fmt.Printf("%s\n", reply.ID)
 
 	}
+
+	if *listkeys {
+		cli, err := c.Keys(context.Background(), &ksrpc.Void{})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to iterate: %v\n", err)
+			return
+		}
+
+		var s *ksrpc.Str
+		for s, err = cli.Recv(); err == nil; s, err = cli.Recv() {
+			fmt.Printf("%s\n", s.S)
+		}
+		if err != io.EOF {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		}
+		return
+	}
+
+	if *listTags {
+		cli, err := c.Tags(context.Background(), &ksrpc.Void{})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to iterate: %v\n", err)
+			return
+		}
+
+		var s *ksrpc.Str
+		for s, err = cli.Recv(); err == nil; s, err = cli.Recv() {
+			fmt.Printf("%s\n", s.S)
+		}
+		if err != io.EOF {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		}
+		return
+	}
+
+	if *all {
+		cli, err := c.Iter(context.Background(), &ksrpc.Void{})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to iterate: %v\n", err)
+			return
+		}
+
+		var kid *ksrpc.ID
+		for kid, err = cli.Recv(); err == nil; kid, err = cli.Recv() {
+			if *verbose {
+				PrintLookup(c, kid.ID)
+			} else {
+				fmt.Printf("%s\n", kid.ID)
+			}
+		}
+		if err != io.EOF {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		}
+		return
+	}
+
 	if *search != "" {
 		parts := strings.SplitN(*search, ":", 2)
 		var key, value string
@@ -171,7 +238,7 @@ func main() {
 		}
 		cli, err := c.Search(context.Background(), &ksrpc.Query{Key: key, Value: value})
 		if err != nil {
-			fmt.Printf("Failed to search %s: %v\n", *search, err)
+			fmt.Fprintf(os.Stderr, "Failed to iterate: %v\n", err)
 			return
 		}
 
@@ -180,23 +247,21 @@ func main() {
 			if *verbose {
 				PrintLookup(c, kid.ID)
 			} else {
-				fmt.Printf("SEARCH: [%s]\n", kid.ID)
+				fmt.Printf("%s\n", kid.ID)
 			}
 		}
 		if err != io.EOF {
-			fmt.Printf("Error: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		}
 	}
 	if *id != "" {
-		if *set {
-			// 			parts := strings.SplitN(*tags, ":", 2)
-			// 			var key, value string
-			// 			if len(parts) != 2 {
-			// 				fmt.Printf("Expected a key and value, separated by a colon, but found: \"%s\".\n", *setkey)
-			// 				return
-			// 			}
-			// 			key = parts[0]
-			// 			value = parts[1]
+		if *del {
+			_, err = c.Delete(context.Background(), &ksrpc.ID{ID: *id})
+			if err != nil {
+				log.Fatalf("failed to sync: %v", err)
+			}
+			return
+		} else if *set {
 			tags := parseTags(*tags)
 			if len(tags) == 0 {
 				fmt.Printf("No tags to be added.\n")
@@ -214,7 +279,7 @@ func main() {
 				fmt.Printf("Failed to set tags on %s: %v\n", *id, err)
 				return
 			}
-		} else if *del {
+		} else if *rem {
 			tags := parseTags(*tags)
 			if len(tags) == 0 {
 				fmt.Printf("No tags to be deleted.\n")
@@ -257,7 +322,7 @@ func main() {
 		//else {
 		PrintLookup(c, *id)
 		//}
-	} else if *set || *del {
+	} else if *set || *rem {
 		fmt.Printf("Need to specify -id to set/delete tags.\n")
 	}
 }
