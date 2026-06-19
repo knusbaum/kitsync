@@ -14,7 +14,8 @@ type Object interface {
 	// of the ID and the Tags.
 	//
 	// To add a tag to the hash, add the key, then the value (h.Write(key); h.Write(value);)
-	// Keys and values must be added in sorted order to have a consistent hash, according to sort.Strings.
+	// Keys and values must be added in sorted order to have a consistent hash,
+	// according to sort.Strings.
 	Hash() (string, error)
 	// Updated is the date the object was last updated. Used to resolve conflicts
 	Updated() (time.Time, error)
@@ -52,6 +53,12 @@ type IndexedStorage interface {
 	SearchTag(k, v string) (Iterator, error)
 	Keys() (Iterator, error)
 	Tags() (Iterator, error)
+}
+
+type SearchableStorage interface {
+	Storage
+	Syncer
+	Search(s string) (Iterator, error)
 }
 
 type Storage interface {

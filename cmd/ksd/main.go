@@ -265,17 +265,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
-	st1, err := kitsync.NewFSStorage("/tmp/foo")
+	st1, err := kitsync.NewFSStorage("storage/st1")
 	if err != nil {
 		log.Fatalf("Failed to start controller: %v", err)
 	}
-	ct, err := kitsync.NewController("testdata", st1)
+	ct, err := kitsync.NewController("storage/testdata", st1)
 	if err != nil {
 		log.Fatalf("Failed to start controller: %v", err)
 	}
 	defer ct.Close()
 	//ct.AddSecondary(kitsync.NewFSStorage("/mnt/microsoft/testkitsync"))
-	st2, err := kitsync.NewFSStorage("/tmp/bar")
+	st2, err := kitsync.NewFSStorage("storage/st2")
 	if err != nil {
 		log.Fatalf("Failed to start controller: %v", err)
 	}
@@ -286,8 +286,9 @@ func main() {
 	// 	}
 	// 	ct.AddSecondary(st3)
 
+	fmt.Printf("Starting index...\n")
 	s := grpc.NewServer()
-	index, err := kitsync.NewPsqlIndex(ct, "127.0.0.1", 5432, "postgres", "example", "testksdindex")
+	index, err := kitsync.NewPsqlIndex(ct, "10.0.0.200", 5432, "kitsync", "xSv8u^dpMW@^e5", "kitsync")
 	if err != nil {
 		log.Fatalf("Failed to start index: %v", err)
 	}
