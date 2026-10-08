@@ -259,7 +259,7 @@ func main() {
 	}
 	if *id != "" {
 		if *del {
-			if !(*yes || promptYN(fmt.Sprintf("Delete %s?", id), false)) {
+			if !(*yes || promptYN(fmt.Sprintf("Delete %s?", *id), false)) {
 				return
 			}
 			_, err = c.Delete(context.Background(), &ksrpc.ID{ID: *id})

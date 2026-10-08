@@ -184,7 +184,7 @@ func addFile(c ksrpc.ControllerClient, f string) {
 			return
 		}
 		if id != rid {
-			errorf("Expected ids to match, but local was (%s), remote was (%s).\n")
+			errorf("Expected ids to match, but local was (%s), remote was (%s).\n", id, rid)
 			return
 		}
 		fmt.Printf("Successfully uploaded %s (%s)\n", f, id)

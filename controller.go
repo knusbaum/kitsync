@@ -326,12 +326,6 @@ sloop:
 					log.Printf("CANNOT SYNC EVENT OF TYPE %#v\n", ev.T)
 					continue sloop
 				}
-				// To make sure we never accidentally skip an event, we only write the checkpoint exactly where we
-				// have executed the event on the secondary, at which point we also advance to the next loop
-				// iteration. If we ever make it here, that means our logic has failed and we didn't manage to sync
-				// the event, so we'll skip this secondary and move on to the next one.
-				log.Printf("Somehow failed to sync event %#v. This is a server logic error. Skipping to next secondary.")
-				continue sloop
 			}
 		}
 	}
