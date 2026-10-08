@@ -256,6 +256,15 @@ var (
 )
 
 func main() {
+	dbHost := os.Getenv("PGHOST")
+	dbUser := os.Getenv("PGUSER")
+	dbPassword := os.Getenv("PGPASSWORD")
+	for _, name := range []string{"PGHOST", "PGUSER", "PGPASSWORD"} {
+		if os.Getenv(name) == "" {
+			log.Fatalf("Required environment variable %s is not set or is empty", name)
+		}
+	}
+
 	go func() {
 		log.Println(http.ListenAndServe("localhost:6060", nil))
 	}()
@@ -288,7 +297,7 @@ func main() {
 
 	fmt.Printf("Starting index...\n")
 	s := grpc.NewServer()
-	index, err := kitsync.NewPsqlIndex(ct, "10.0.0.200", 5432, "kitsync", "xSv8u^dpMW@^e5", "kitsync")
+	index, err := kitsync.NewPsqlIndex(ct, dbHost, 5432, dbUser, dbPassword, "kitsync")
 	if err != nil {
 		log.Fatalf("Failed to start index: %v", err)
 	}
